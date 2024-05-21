@@ -10,7 +10,7 @@ constexpr std::size_t legendreOrderMax = 15;
 constexpr std::array<double,
                      (legendreOrderMax + 1) * (legendreOrderMax + 2) / 2>
     legendreNodes{
-        0.5,                               // 0st order
+        0.5,                               // 0
         0.5 * (1.0 - 0.5773502691896257),  // 1
         0.5 * (1.0 + 0.5773502691896257),
         0.5 * (1.0 - 0.7745966692414834),  // 2
