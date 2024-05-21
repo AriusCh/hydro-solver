@@ -2,6 +2,13 @@ project(hydro-solver)
 
 set(SOURCE_FILES main.cpp
 
+  # EOSes
+  eos.hpp
+  eoses/eos_ideal_gas.hpp
+
+  # PROBLEM
+  problem.hpp problem.cpp
+
   # UTILS
   utils/lobatto_nodes.hpp utils/lobatto_nodes.cpp
   utils/legendre_nodes.hpp utils/legendre_nodes.cpp

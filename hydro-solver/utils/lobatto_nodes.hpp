@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <vector>
 
-constexpr std::size_t lobattoOrderMax = 8uz;
+constexpr std::size_t lobattoOrderMax = 8;
 
 constexpr std::array<double, (lobattoOrderMax + 1) * (lobattoOrderMax + 2) / 2>
     lobattoNodes{

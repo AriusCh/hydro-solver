@@ -10,7 +10,7 @@ class EOS {
   EOS& operator=(const EOS& rhs) = default;
   EOS& operator=(EOS&& rhs) = default;
 
-  virtual ~EOS() = 0;
+  virtual ~EOS(){};
 
  public:
   virtual double getp(const double rho, const double e) const = 0;
