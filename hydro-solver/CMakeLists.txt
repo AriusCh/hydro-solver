@@ -1,11 +1,17 @@
 project(hydro-solver)
 
-set(SOURCE_FILES main.cpp)
+set(SOURCE_FILES main.cpp
+
+  # UTILS
+  utils/lobatto_nodes.hpp utils/lobatto_nodes.cpp
+  utils/legendre_nodes.hpp utils/legendre_nodes.cpp
+  utils/basis.hpp utils/basis.cpp
+  )
 
 add_executable(hydro-solver ${SOURCE_FILES})
 
 set_target_properties(hydro-solver PROPERTIES
-  CXX_STANDARD 23
+  CXX_STANDARD 17
   CXX_STANDARD_REQUIRED YES
   CXX_EXTENSIONS NO
   )
