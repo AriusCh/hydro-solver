@@ -12,19 +12,16 @@ Problem createRiemannProblem(const std::string &name, const double xmin,
   constexpr std::size_t kNumberOfMatrials = 1;
   auto uInitializer = [spl, uL, uR](const double x,
                                     [[maybe_unused]] const double y) {
-    std::vector<double> output(kNumberOfMatrials);
+    double output;
     if (x < spl) {
-      output[0] = uL;
+      output = uL;
     } else {
-      output[0] = uR;
+      output = uR;
     }
     return output;
   };
   auto vInitializer = []([[maybe_unused]] const double x,
-                         [[maybe_unused]] const double y) {
-    std::vector<double> output(kNumberOfMatrials, 0.0);
-    return output;
-  };
+                         [[maybe_unused]] const double y) { return 0.0; };
   auto volFractionInitializer = []([[maybe_unused]] const double x,
                                    [[maybe_unused]] const double y) {
     std::vector<double> output(kNumberOfMatrials, 1.0);
@@ -53,6 +50,9 @@ Problem createRiemannProblem(const std::string &name, const double xmin,
   };
   std::vector<std::shared_ptr<EOS>> eoses{std::make_shared<EOSIdealGas>(gamma)};
 
+  std::shared_ptr<MaterialClosure> matClosure =
+      std::make_shared<MaterialClosure>(kNumberOfMatrials);
+
   Problem output{name,
                  xmin,
                  xmax,
@@ -67,12 +67,13 @@ Problem createRiemannProblem(const std::string &name, const double xmin,
                  BoundaryType::eWall,
                  BoundaryType::eWall,
                  BoundaryType::eWall,
-                 1,
+                 kNumberOfMatrials,
                  uInitializer,
                  vInitializer,
                  volFractionInitializer,
                  rhoInitializer,
                  pInitializer,
-                 eoses};
+                 eoses,
+                 std::move(matClosure)};
   return output;
 }

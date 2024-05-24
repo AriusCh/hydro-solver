@@ -6,12 +6,21 @@ set(SOURCE_FILES main.cpp
   eos.hpp
   eoses/eos_ideal_gas.hpp
 
+  # MATERIAL CLOSURES
+  material_closure.hpp
+  material_closures/al_vac_closure.hpp
+
   # PROBLEM
   problem.hpp problem.cpp
+
+  # METHODS
+  method.hpp
+  methods/lagrangian_fem_method.hpp methods/lagrangian_fem_method.cpp
 
   # UTILS
   utils/lobatto_nodes.hpp utils/lobatto_nodes.cpp
   utils/legendre_nodes.hpp utils/legendre_nodes.cpp
+  utils/legendre_weights.hpp utils/legendre_weights.cpp
   utils/basis.hpp utils/basis.cpp
   )
 
@@ -31,4 +40,4 @@ target_link_libraries(hydro-solver PUBLIC Eigen3::Eigen)
 #   target_link_libraries(hydro-solver PUBLIC OpenMP::OpenMP_CXX)
 # endif()
 
-target_compile_options(hydro-solver PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Weffc++)
+target_compile_options(hydro-solver PRIVATE -Wall -Wextra -Wpedantic -Wshadow)

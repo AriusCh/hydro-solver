@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "eos.hpp"
+#include "material_closure.hpp"
 
 enum class ProblemDimension { e1D, e2D };
 
@@ -32,10 +33,8 @@ struct Problem {
 
   std::size_t numberOfMaterials;
 
-  std::function<std::vector<double>(const double x, const double y)>
-      uInitializer;
-  std::function<std::vector<double>(const double x, const double y)>
-      vInitializer;
+  std::function<double(const double x, const double y)> uInitializer;
+  std::function<double(const double x, const double y)> vInitializer;
   std::function<std::vector<double>(const double x, const double y)>
       volFractionInitializer;
   std::function<std::vector<double>(const double x, const double y)>
@@ -44,6 +43,8 @@ struct Problem {
       pInitializer;
 
   std::vector<std::shared_ptr<EOS>> eoses;
+
+  std::shared_ptr<MaterialClosure> matClosure;
 };
 
 struct DefaultProblems {
