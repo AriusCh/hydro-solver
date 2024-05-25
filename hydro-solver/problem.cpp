@@ -77,3 +77,7 @@ Problem createRiemannProblem(const std::string &name, const double xmin,
                  std::move(matClosure)};
   return output;
 }
+
+const Problem DefaultProblems::sodTest =
+    createRiemannProblem("sod-test", 0.0, 1.0, 0.5, 0.2, 1.0, 0.0, 1.0, 1.0,
+                         0.0, 0.125, 0.1, 5.0 / 3.0);

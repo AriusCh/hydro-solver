@@ -88,9 +88,9 @@ void LagrangianFemMethod::dumpData() const {
   const double tmp = t * problem.tMul;
   const std::size_t integralPart = std::floor(tmp);
   const std::size_t decimalPart = std::floor(1000 * (tmp - integralPart));
-  const std::filesystem::path dataOutputDir = outputDirPath /
-                                              std::to_string(integralPart) /
-                                              "_" / std::to_string(decimalPart);
+  const std::filesystem::path dataOutputDir =
+      outputDirPath /
+      (std::to_string(integralPart) + "_" + std::to_string(decimalPart));
 
   std::filesystem::create_directory(dataOutputDir);
 
@@ -100,7 +100,7 @@ void LagrangianFemMethod::dumpData() const {
     const std::size_t xSize = x.size();
     for (std::size_t i = 0; i < xSize; i++) {
       const double xLocal = x(i);
-      ofs << xLocal;
+      ofs.write(reinterpret_cast<const char *>(&xLocal), sizeof(double));
     }
   }
 
@@ -110,7 +110,7 @@ void LagrangianFemMethod::dumpData() const {
     const std::size_t uSize = u.size();
     for (std::size_t i = 0; i < uSize; i++) {
       const double uLocal = u(i);
-      ofs << uLocal;
+      ofs.write(reinterpret_cast<const char *>(&uLocal), sizeof(double));
     }
   }
 
@@ -120,7 +120,7 @@ void LagrangianFemMethod::dumpData() const {
     const std::size_t volFracSize = volFrac.size();
     for (std::size_t i = 0; i < volFracSize; i++) {
       const double volFracLocal = volFrac(i);
-      ofs << volFracLocal;
+      ofs.write(reinterpret_cast<const char *>(&volFracLocal), sizeof(double));
     }
   }
 
@@ -154,7 +154,7 @@ void LagrangianFemMethod::dumpData() const {
     const std::size_t rhoSize = rhoOut.size();
     for (std::size_t i = 0; i < rhoSize; i++) {
       const double rhoLocal = rhoOut(i);
-      ofs << rhoLocal;
+      ofs.write(reinterpret_cast<const char *>(&rhoLocal), sizeof(double));
     }
   }
 
@@ -164,7 +164,7 @@ void LagrangianFemMethod::dumpData() const {
     const std::size_t eSize = e.size();
     for (std::size_t i = 0; i < eSize; i++) {
       const double eLocal = e(i);
-      ofs << eLocal;
+      ofs.write(reinterpret_cast<const char *>(&eLocal), sizeof(double));
     }
   }
 }
@@ -682,12 +682,10 @@ void LagrangianFemMethod::calcKinematicMassMatrix() {
 
   for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
     const Eigen::MatrixXd cellKinematicMass = quadKinematicCellMass(cell);
-    assert(cellKinematicMass.rows() ==
-           static_cast<Eigen::MatrixXd::Index>(
-               kSolverDimention * kNumberOfKinematicPointsPerCell));
-    assert(cellKinematicMass.cols() ==
-           static_cast<Eigen::MatrixXd::Index>(
-               kSolverDimention * kNumberOfKinematicPointsPerCell));
+    assert(cellKinematicMass.rows() == static_cast<Eigen::MatrixXd::Index>(
+                                           kNumberOfKinematicPointsPerCell));
+    assert(cellKinematicMass.cols() == static_cast<Eigen::MatrixXd::Index>(
+                                           kNumberOfKinematicPointsPerCell));
 
     for (std::size_t nodei = 0; nodei < kNumberOfKinematicPointsPerCell;
          nodei++) {

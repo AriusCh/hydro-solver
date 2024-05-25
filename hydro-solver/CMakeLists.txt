@@ -17,6 +17,9 @@ set(SOURCE_FILES main.cpp
   method.hpp
   methods/lagrangian_fem_method.hpp methods/lagrangian_fem_method.cpp
 
+  # SIMULATION
+  simulation.hpp simulation.cpp
+
   # UTILS
   utils/lobatto_nodes.hpp utils/lobatto_nodes.cpp
   utils/legendre_nodes.hpp utils/legendre_nodes.cpp
