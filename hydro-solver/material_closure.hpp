@@ -22,7 +22,7 @@ class MaterialClosure {
   virtual std::vector<double> calcVolFracRates(
       const std::vector<double> &volFracs, const std::vector<double> &rhos,
       const std::vector<double> &ps, const std::vector<double> &soundSpeeds,
-      const double h);
+      const double h, const double dt);
 
  protected:
   const std::size_t kNumberOfMaterials;
@@ -33,7 +33,7 @@ inline std::vector<double> MaterialClosure::calcVolFracRates(
     [[maybe_unused]] const std::vector<double> &rhos,
     [[maybe_unused]] const std::vector<double> &ps,
     [[maybe_unused]] const std::vector<double> &soundSpeeds,
-    [[maybe_unused]] const double h) {
+    [[maybe_unused]] const double h, [[maybe_unused]] const double dt) {
   assert(volFracs.size() == kNumberOfMaterials);
   assert(rhos.size() == kNumberOfMaterials);
   assert(ps.size() == kNumberOfMaterials);

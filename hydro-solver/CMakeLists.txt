@@ -5,6 +5,7 @@ set(SOURCE_FILES main.cpp
   # EOSes
   eos.hpp
   eoses/eos_ideal_gas.hpp
+  eoses/eos_mgal_precise6.hpp eoses/eos_mgal_precise6.cpp
 
   # MATERIAL CLOSURES
   material_closure.hpp
@@ -38,9 +39,9 @@ set_target_properties(hydro-solver PROPERTIES
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 target_link_libraries(hydro-solver PUBLIC Eigen3::Eigen)
 
-# find_package(OpenMP)
-# if (OpenMP_CXX_FOUND)
-#   target_link_libraries(hydro-solver PUBLIC OpenMP::OpenMP_CXX)
-# endif()
+find_package(OpenMP)
+if (OpenMP_CXX_FOUND)
+  target_link_libraries(hydro-solver PUBLIC OpenMP::OpenMP_CXX)
+endif()
 
 target_compile_options(hydro-solver PRIVATE -Wall -Wextra -Wpedantic -Wshadow)

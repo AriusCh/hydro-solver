@@ -92,10 +92,11 @@ void Simulation::logSimulationEnd(const double simulationTime) const {
 
 void Simulation::logIteration(std::size_t iterationNumber, double t, double dt,
                               double calcTime, double remTime) const {
+  const auto default_precision = std::cout.precision();
   std::cout << "PROBLEM: " << method->problem.name
             << " METHOD: " << method->name << " ITERATION: " << std::setw(7)
-            << iterationNumber << " t: " << t << " dt: " << dt
-            << " STEP TIME: " << calcTime << " remTime: " << std::floor(remTime)
-            << std::endl;
-  ;
+            << iterationNumber << " t: " << std::setprecision(6) << t
+            << " dt: " << dt << " STEP TIME: " << calcTime
+            << " remTime: " << std::floor(remTime) << std::endl;
+  std::cout << std::setprecision(default_precision);
 }

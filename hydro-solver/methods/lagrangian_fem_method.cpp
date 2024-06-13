@@ -26,18 +26,23 @@ LagrangianFemMethod::LagrangianFemMethod(const Problem &problem_,
       kNumberOfKinematicPointsPerCellPerDimention(kOrder + 1),
       kNumberOfThermodynamicPointsPerCellPerDimention(kOrder),
       kNumberOfQuadraturePointsPerCellPerDimention(2 * kOrder),
+      kNumberOfOutputPointsPerCellPerDimention(kOrder == 1 ? 1
+                                                           : 5 * (kOrder / 2)),
       kNumberOfKinematicPointsPerCell(std::pow(
           kNumberOfKinematicPointsPerCellPerDimention, kSolverDimention)),
       kNumberOfThermodynamicPointsPerCell(std::pow(
           kNumberOfThermodynamicPointsPerCellPerDimention, kSolverDimention)),
       kNumberOfQuadraturePointsPerCell(std::pow(
           kNumberOfQuadraturePointsPerCellPerDimention, kSolverDimention)),
+      kNumberOfOutputPointsPerCell(
+          std::pow(kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
       kNumberOfKinematicPointsTotal((kOrder * xCells + 1) *
                                     (kOrder * yCells + 1)),
       kNumberOfThermodynamicPointsTotal(kNumberOfThermodynamicPointsPerCell *
                                         kNumberOfCells),
       kNumberOfQuadraturePointsTotal(kNumberOfQuadraturePointsPerCell *
                                      kNumberOfCells),
+      kNumberOfOutputPointsTotal(kNumberOfOutputPointsPerCell * kNumberOfCells),
       hminCoeff(initHminCoeff(kNumberOfKinematicPointsPerCellPerDimention)),
       quadWeights(initQuadratureWeights(
           kNumberOfQuadraturePointsPerCellPerDimention, kSolverDimention)),
@@ -52,7 +57,22 @@ LagrangianFemMethod::LagrangianFemMethod(const Problem &problem_,
           kNumberOfQuadraturePointsPerCellPerDimention, kSolverDimention)),
       thermodynamicBasisQuadValues(initThermodynamicBasisQuadValues(
           kNumberOfThermodynamicPointsPerCellPerDimention,
-          kNumberOfQuadraturePointsPerCellPerDimention, kSolverDimention))
+          kNumberOfQuadraturePointsPerCellPerDimention, kSolverDimention)),
+      kinematicBasisOutputValues(initKinematicBasisOutputValues(
+          kNumberOfKinematicPointsPerCellPerDimention,
+          kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      kinematicBasisdxOutputValues(initKinematicBasisdxOutputValues(
+          kNumberOfKinematicPointsPerCellPerDimention,
+          kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      kinematicBasisdyOutputValues(initKinematicBasisdyOutputValues(
+          kNumberOfKinematicPointsPerCellPerDimention,
+          kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      thermodynamicBasisOutputValues(initThermodynamicBasisOutputValues(
+          kNumberOfThermodynamicPointsPerCellPerDimention,
+          kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      quadBasisOutputValues(initQuadBasisOutputValues(
+          kNumberOfQuadraturePointsPerCellPerDimention,
+          kNumberOfOutputPointsPerCellPerDimention, kSolverDimention))
 
 {
   initKinematicVectors();
@@ -66,28 +86,36 @@ LagrangianFemMethod::LagrangianFemMethod(const Problem &problem_,
 }
 
 void LagrangianFemMethod::dumpSolverInfo() const {
-  const std::string solverInfoFilename = "solver_info.txt";
-  std::ofstream ofs(outputDirPath / solverInfoFilename);
+  {
+    const std::string solverInfoFilename = "solver_info.txt";
+    std::ofstream ofs(outputDirPath / solverInfoFilename);
 
-  if (!ofs) {
-    const std::string error_message =
-        "FAILED TO OPEN FILE: " + (outputDirPath / solverInfoFilename).string();
+    if (!ofs) {
+      const std::string error_message =
+          "FAILED TO OPEN FILE: " +
+          (outputDirPath / solverInfoFilename).string();
 
-    std::cout << error_message << std::endl;
-    return;
+      std::cout << error_message << std::endl;
+      return;
+    }
+
+    ofs << "XCELLS " << std::to_string(xCells) << "\n";
+    ofs << "YCELLS " << std::to_string(yCells) << "\n";
+    ofs << "ORDER " << std::to_string(kOrder) << "\n";
+    ofs << "DIMENSIONS " << std::to_string(kSolverDimention) << "\n";
+    ofs << "MATERIALS " << std::to_string(kNumberOfMaterials) << "\n";
+    ofs << "IMAX " << kNumberOfOutputPointsPerCellPerDimention * xCells << "\n";
+    ofs << "JMAX " << kNumberOfOutputPointsPerCellPerDimention * yCells << "\n";
+    ofs << "OUT_PER_CELL_PER_DIM " << kNumberOfOutputPointsPerCellPerDimention
+        << "\n";
+    ofs << "OUT_PER_CELL " << kNumberOfOutputPointsPerCell << "\n";
   }
-
-  ofs << "XCELLS " << std::to_string(xCells) << "\n";
-  ofs << "YCELLS " << std::to_string(yCells) << "\n";
-  ofs << "ORDER " << std::to_string(kOrder) << "\n";
-  ofs << "DIMENSIONS " << std::to_string(kSolverDimention) << "\n";
-  ofs << "MATERIALS " << std::to_string(kNumberOfMaterials) << "\n";
 }
 
 void LagrangianFemMethod::dumpData() const {
-  const double tmp = t * problem.tMul;
-  const std::size_t integralPart = std::floor(tmp);
-  const std::size_t decimalPart = std::floor(1000 * (tmp - integralPart));
+  const std::size_t tmp = std::round(1000.0 * t * problem.tMul);
+  const std::size_t integralPart = tmp / 1000;
+  const std::size_t decimalPart = tmp % 1000;
   const std::filesystem::path dataOutputDir =
       outputDirPath /
       (std::to_string(integralPart) + "_" + std::to_string(decimalPart));
@@ -97,74 +125,171 @@ void LagrangianFemMethod::dumpData() const {
   // DUMP X
   {
     std::ofstream ofs(dataOutputDir / "x.fem", std::ios::binary);
-    const std::size_t xSize = x.size();
-    for (std::size_t i = 0; i < xSize; i++) {
-      const double xLocal = x(i);
-      ofs.write(reinterpret_cast<const char *>(&xLocal), sizeof(double));
+    constexpr std::size_t direction = 0;
+    for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+      for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+        double xOut = 0.0;
+        for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
+             node++) {
+          const std::size_t nodeIndex =
+              getKinematicIndexFromCell(cell, node, direction);
+          const double xLocal = x(nodeIndex);
+          const double nodeBasis = kinematicBasisOutputValues(node, out);
+          xOut += xLocal * nodeBasis;
+        }
+        ofs.write(reinterpret_cast<const char *>(&xOut), sizeof(double));
+      }
+    }
+  }
+
+  // DUMP Y
+  {
+    std::ofstream ofs(dataOutputDir / "y.fem", std::ios::binary);
+    constexpr std::size_t direction = 1;
+    for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+      for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+        double yOut = 0.0;
+        for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
+             node++) {
+          const std::size_t nodeIndex =
+              getKinematicIndexFromCell(cell, node, direction);
+          const double yLocal = x(nodeIndex);
+          const double nodeBasis = kinematicBasisOutputValues(node, out);
+          yOut += yLocal * nodeBasis;
+        }
+        ofs.write(reinterpret_cast<const char *>(&yOut), sizeof(double));
+      }
     }
   }
 
   // DUMP U
   {
     std::ofstream ofs(dataOutputDir / "u.fem", std::ios::binary);
-    const std::size_t uSize = u.size();
-    for (std::size_t i = 0; i < uSize; i++) {
-      const double uLocal = u(i);
-      ofs.write(reinterpret_cast<const char *>(&uLocal), sizeof(double));
-    }
-  }
-
-  // DUMP VOLUME FRACTIONS
-  {
-    std::ofstream ofs(dataOutputDir / "vol_frac.fem", std::ios::binary);
-    const std::size_t volFracSize = volFrac.size();
-    for (std::size_t i = 0; i < volFracSize; i++) {
-      const double volFracLocal = volFrac(i);
-      ofs.write(reinterpret_cast<const char *>(&volFracLocal), sizeof(double));
-    }
-  }
-
-  // DUMP RHO
-  {
-    Eigen::VectorXd rhoOut = rhoInitial;
+    constexpr std::size_t direction = 0;
     for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
-      for (std::size_t quad = 0; quad < kNumberOfQuadraturePointsPerCell;
-           quad++) {
-        const Eigen::Matrix2d jacobian = calcJacobian(cell, quad, x);
-        const double jacobianDet = jacobian.determinant();
-        const Eigen::Matrix2d jacobianInitial =
-            calcJacobian(cell, quad, xInitial);
-        const double jacobianInitialDet = jacobianInitial.determinant();
-
-        for (std::size_t material = 0; material < kNumberOfMaterials;
-             material++) {
-          const std::size_t quadIndex =
-              getQuadIndexFromCell(cell, quad, material);
-          const double volFracMat = volFrac(quadIndex);
-          const double volFracInitialMat = volFracInitial(quadIndex);
-          const double rhoInitialMat = rhoInitial(quadIndex);
-
-          rhoOut(quadIndex) = volFracInitialMat * rhoInitialMat *
-                              jacobianInitialDet / (volFracMat * jacobianDet);
+      for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+        double uOut = 0.0;
+        for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
+             node++) {
+          const std::size_t nodeIndex =
+              getKinematicIndexFromCell(cell, node, direction);
+          const double uLocal = u(nodeIndex);
+          const double nodeBasis = kinematicBasisOutputValues(node, out);
+          uOut += uLocal * nodeBasis;
         }
+        ofs.write(reinterpret_cast<const char *>(&uOut), sizeof(double));
       }
     }
+  }
 
-    std::ofstream ofs(dataOutputDir / "rho.fem", std::ios::binary);
-    const std::size_t rhoSize = rhoOut.size();
-    for (std::size_t i = 0; i < rhoSize; i++) {
-      const double rhoLocal = rhoOut(i);
-      ofs.write(reinterpret_cast<const char *>(&rhoLocal), sizeof(double));
+  // DUMP V
+  {
+    std::ofstream ofs(dataOutputDir / "v.fem", std::ios::binary);
+    constexpr std::size_t direction = 1;
+    for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+      for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+        double vOut = 0.0;
+        for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
+             node++) {
+          const std::size_t nodeIndex =
+              getKinematicIndexFromCell(cell, node, direction);
+          const double vLocal = u(nodeIndex);
+          const double nodeBasis = kinematicBasisOutputValues(node, out);
+          vOut += vLocal * nodeBasis;
+        }
+        ofs.write(reinterpret_cast<const char *>(&vOut), sizeof(double));
+      }
     }
   }
 
-  // DUMP E
+  // DUMP VOLUME FRACTIONS, RHO, E, P
   {
-    std::ofstream ofs(dataOutputDir / "e.fem", std::ios::binary);
-    const std::size_t eSize = e.size();
-    for (std::size_t i = 0; i < eSize; i++) {
-      const double eLocal = e(i);
-      ofs.write(reinterpret_cast<const char *>(&eLocal), sizeof(double));
+    for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
+      const std::string filenameVolFrac =
+          "vol_frac" + std::to_string(material) + ".fem";
+      const std::string filenameRho = "rho" + std::to_string(material) + ".fem";
+      const std::string filenameE = "e" + std::to_string(material) + ".fem";
+      const std::string filenameP = "p" + std::to_string(material) + ".fem";
+
+      std::ofstream ofsVolFrac(dataOutputDir / filenameVolFrac,
+                               std::ios::binary);
+      std::ofstream ofsRho(dataOutputDir / filenameRho, std::ios::binary);
+      std::ofstream ofsE(dataOutputDir / filenameE, std::ios::binary);
+      std::ofstream ofsP(dataOutputDir / filenameP, std::ios::binary);
+
+      for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+        for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+          Eigen::Matrix2d jacobian;
+          Eigen::Matrix2d jacobianInitial;
+          jacobian.setZero();
+          jacobianInitial.setZero();
+          for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
+               node++) {
+            for (std::size_t direction = 0; direction < kSolverDimention;
+                 direction++) {
+              const std::size_t nodeIndex =
+                  getKinematicIndexFromCell(cell, node, direction);
+              const double xLocal = x(nodeIndex);
+              const double xInitialLocal = xInitial(nodeIndex);
+              const double nodeBasisdx =
+                  kinematicBasisdxOutputValues(node, out);
+              const double nodeBasisdy =
+                  kinematicBasisdyOutputValues(node, out);
+              jacobian(0, direction) += xLocal * nodeBasisdx;
+              jacobian(1, direction) += xLocal * nodeBasisdy;
+              jacobianInitial(0, direction) += xInitialLocal * nodeBasisdx;
+              jacobianInitial(1, direction) += xInitialLocal * nodeBasisdy;
+            }
+          }
+          const double jacobianDet = std::abs(jacobian.determinant());
+          const double jacobianInitialDet =
+              std::abs(jacobianInitial.determinant());
+
+          double volFracInitialOut = 0.0;
+          double rhoInitialOut = 0.0;
+          double volFracOut = 0.0;
+
+          for (std::size_t quad = 0; quad < kNumberOfQuadraturePointsPerCell;
+               quad++) {
+            const std::size_t quadIndex =
+                getQuadIndexFromCell(cell, quad, material);
+            const double volFracInitialLocal = volFracInitial(quadIndex);
+            const double rhoInitialLocal = rhoInitial(quadIndex);
+            const double volFracLocal = volFrac(quadIndex);
+            const double quadBasis = quadBasisOutputValues(quad, out);
+
+            volFracInitialOut += volFracInitialLocal * quadBasis;
+            rhoInitialOut += rhoInitialLocal * quadBasis;
+            volFracOut += volFracLocal * quadBasis;
+          }
+
+          const double rhoOut =
+              (volFracInitialOut * rhoInitialOut * jacobianInitialDet) /
+              (volFracOut * jacobianDet);
+
+          double eOut = 0.0;
+
+          for (std::size_t node = 0; node < kNumberOfThermodynamicPointsPerCell;
+               node++) {
+            const std::size_t nodeIndex =
+                getThermodynamicIndexFromCell(cell, node, material);
+
+            const double eLocal = e(nodeIndex);
+            const double nodeBasis = thermodynamicBasisOutputValues(node, out);
+            eOut += eLocal * nodeBasis;
+          }
+
+          auto eos = problem.eoses[material];
+
+          const double pOut = eos->getp(rhoOut, eOut);
+
+          ofsVolFrac.write(reinterpret_cast<const char *>(&volFracOut),
+                           sizeof(double));
+          ofsRho.write(reinterpret_cast<const char *>(&rhoOut), sizeof(double));
+          ofsE.write(reinterpret_cast<const char *>(&eOut), sizeof(double));
+          ofsP.write(reinterpret_cast<const char *>(&pOut), sizeof(double));
+        }
+      }
     }
   }
 }
@@ -390,6 +515,237 @@ Eigen::MatrixXd LagrangianFemMethod::initThermodynamicBasisQuadValues(
       const double basisy = legendreBasis1D(y, legendreOrder, basisj);
 
       output(basis, quad) = basisx * basisy;
+    }
+  }
+
+  return output;
+}
+
+Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisOutputValues(
+    const std::size_t numberOfKinematicPointsPerCellPerDimention,
+    const std::size_t numberOfOutputPointsPerCellPerDimention,
+    const std::size_t solverDimention) {
+  assert(solverDimention == 2);
+
+  const double di = 1.0 / numberOfOutputPointsPerCellPerDimention;
+  std::vector<double> outputNodes1D(numberOfOutputPointsPerCellPerDimention);
+  for (std::size_t i = 0; i < numberOfOutputPointsPerCellPerDimention; i++) {
+    outputNodes1D[i] = 0.5 * di + i * di;
+  }
+
+  const std::size_t numberOfKinematicPointsPerCell =
+      std::pow(numberOfKinematicPointsPerCellPerDimention, solverDimention);
+  const std::size_t numberOfOutputPointsPerCell =
+      std::pow(numberOfOutputPointsPerCellPerDimention, solverDimention);
+
+  Eigen::MatrixXd output(numberOfKinematicPointsPerCell,
+                         numberOfOutputPointsPerCell);
+  output.setZero();
+
+  const std::size_t lobattoOrder =
+      numberOfKinematicPointsPerCellPerDimention - 1;
+  for (std::size_t out = 0; out < numberOfOutputPointsPerCell; out++) {
+    const std::size_t outi = out / numberOfOutputPointsPerCellPerDimention;
+    const std::size_t outj = out % numberOfOutputPointsPerCellPerDimention;
+
+    const double x = outputNodes1D[outi];
+    const double y = outputNodes1D[outj];
+
+    for (std::size_t node = 0; node < numberOfKinematicPointsPerCell; node++) {
+      const std::size_t nodei =
+          node / numberOfKinematicPointsPerCellPerDimention;
+      const std::size_t nodej =
+          node % numberOfKinematicPointsPerCellPerDimention;
+
+      const double basisi = lobattoBasis1D(x, lobattoOrder, nodei);
+      const double basisj = lobattoBasis1D(y, lobattoOrder, nodej);
+
+      output(node, out) = basisi * basisj;
+    }
+  }
+
+  return output;
+}
+
+Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdxOutputValues(
+    const std::size_t numberOfKinematicPointsPerCellPerDimention,
+    const std::size_t numberOfOutputPointsPerCellPerDimention,
+    const std::size_t solverDimention) {
+  assert(solverDimention == 2);
+
+  const double di = 1.0 / numberOfOutputPointsPerCellPerDimention;
+  std::vector<double> outputNodes1D(numberOfOutputPointsPerCellPerDimention);
+  for (std::size_t i = 0; i < numberOfOutputPointsPerCellPerDimention; i++) {
+    outputNodes1D[i] = 0.5 * di + i * di;
+  }
+
+  const std::size_t numberOfKinematicPointsPerCell =
+      std::pow(numberOfKinematicPointsPerCellPerDimention, solverDimention);
+  const std::size_t numberOfOutputPointsPerCell =
+      std::pow(numberOfOutputPointsPerCellPerDimention, solverDimention);
+
+  Eigen::MatrixXd output(numberOfKinematicPointsPerCell,
+                         numberOfOutputPointsPerCell);
+  output.setZero();
+
+  const std::size_t lobattoOrder =
+      numberOfKinematicPointsPerCellPerDimention - 1;
+  for (std::size_t out = 0; out < numberOfOutputPointsPerCell; out++) {
+    const std::size_t outi = out / numberOfOutputPointsPerCellPerDimention;
+    const std::size_t outj = out % numberOfOutputPointsPerCellPerDimention;
+
+    const double x = outputNodes1D[outi];
+    const double y = outputNodes1D[outj];
+
+    for (std::size_t node = 0; node < numberOfKinematicPointsPerCell; node++) {
+      const std::size_t nodei =
+          node / numberOfKinematicPointsPerCellPerDimention;
+      const std::size_t nodej =
+          node % numberOfKinematicPointsPerCellPerDimention;
+
+      const double basisi = lobattoBasis1Ddx(x, lobattoOrder, nodei);
+      const double basisj = lobattoBasis1D(y, lobattoOrder, nodej);
+
+      output(node, out) = basisi * basisj;
+    }
+  }
+
+  return output;
+}
+
+Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdyOutputValues(
+    const std::size_t numberOfKinematicPointsPerCellPerDimention,
+    const std::size_t numberOfOutputPointsPerCellPerDimention,
+    const std::size_t solverDimention) {
+  assert(solverDimention == 2);
+
+  const double di = 1.0 / numberOfOutputPointsPerCellPerDimention;
+  std::vector<double> outputNodes1D(numberOfOutputPointsPerCellPerDimention);
+  for (std::size_t i = 0; i < numberOfOutputPointsPerCellPerDimention; i++) {
+    outputNodes1D[i] = 0.5 * di + i * di;
+  }
+
+  const std::size_t numberOfKinematicPointsPerCell =
+      std::pow(numberOfKinematicPointsPerCellPerDimention, solverDimention);
+  const std::size_t numberOfOutputPointsPerCell =
+      std::pow(numberOfOutputPointsPerCellPerDimention, solverDimention);
+
+  Eigen::MatrixXd output(numberOfKinematicPointsPerCell,
+                         numberOfOutputPointsPerCell);
+  output.setZero();
+
+  const std::size_t lobattoOrder =
+      numberOfKinematicPointsPerCellPerDimention - 1;
+  for (std::size_t out = 0; out < numberOfOutputPointsPerCell; out++) {
+    const std::size_t outi = out / numberOfOutputPointsPerCellPerDimention;
+    const std::size_t outj = out % numberOfOutputPointsPerCellPerDimention;
+
+    const double x = outputNodes1D[outi];
+    const double y = outputNodes1D[outj];
+
+    for (std::size_t node = 0; node < numberOfKinematicPointsPerCell; node++) {
+      const std::size_t nodei =
+          node / numberOfKinematicPointsPerCellPerDimention;
+      const std::size_t nodej =
+          node % numberOfKinematicPointsPerCellPerDimention;
+
+      const double basisi = lobattoBasis1D(x, lobattoOrder, nodei);
+      const double basisj = lobattoBasis1Ddx(y, lobattoOrder, nodej);
+
+      output(node, out) = basisi * basisj;
+    }
+  }
+
+  return output;
+}
+
+Eigen::MatrixXd LagrangianFemMethod::initThermodynamicBasisOutputValues(
+    const std::size_t numberOfThermodynamicPointsPerCellPerDimention,
+    const std::size_t numberOfOutputPointsPerCellPerDimention,
+    const std::size_t solverDimention) {
+  assert(solverDimention == 2);
+
+  const double di = 1.0 / numberOfOutputPointsPerCellPerDimention;
+  std::vector<double> outputNodes1D(numberOfOutputPointsPerCellPerDimention);
+  for (std::size_t i = 0; i < numberOfOutputPointsPerCellPerDimention; i++) {
+    outputNodes1D[i] = 0.5 * di + i * di;
+  }
+
+  const std::size_t numberOfThermodynamicPointsPerCell =
+      std::pow(numberOfThermodynamicPointsPerCellPerDimention, solverDimention);
+  const std::size_t numberOfOutputPointsPerCell =
+      std::pow(numberOfOutputPointsPerCellPerDimention, solverDimention);
+
+  Eigen::MatrixXd output(numberOfThermodynamicPointsPerCell,
+                         numberOfOutputPointsPerCell);
+  output.setZero();
+
+  const std::size_t legendreOrder =
+      numberOfThermodynamicPointsPerCellPerDimention - 1;
+  for (std::size_t out = 0; out < numberOfOutputPointsPerCell; out++) {
+    const std::size_t outi = out / numberOfOutputPointsPerCellPerDimention;
+    const std::size_t outj = out % numberOfOutputPointsPerCellPerDimention;
+
+    const double x = outputNodes1D[outi];
+    const double y = outputNodes1D[outj];
+
+    for (std::size_t node = 0; node < numberOfThermodynamicPointsPerCell;
+         node++) {
+      const std::size_t nodei =
+          node / numberOfThermodynamicPointsPerCellPerDimention;
+      const std::size_t nodej =
+          node % numberOfThermodynamicPointsPerCellPerDimention;
+
+      const double basisi = legendreBasis1D(x, legendreOrder, nodei);
+      const double basisj = legendreBasis1D(y, legendreOrder, nodej);
+
+      output(node, out) = basisi * basisj;
+    }
+  }
+
+  return output;
+}
+
+Eigen::MatrixXd LagrangianFemMethod::initQuadBasisOutputValues(
+    const std::size_t numberOfQuadraturePointsPerCellPerDimention,
+    const std::size_t numberOfOutputPointsPerCellPerDimention,
+    const std::size_t solverDimention) {
+  assert(solverDimention == 2);
+
+  const double di = 1.0 / numberOfOutputPointsPerCellPerDimention;
+  std::vector<double> outputNodes1D(numberOfOutputPointsPerCellPerDimention);
+  for (std::size_t i = 0; i < numberOfOutputPointsPerCellPerDimention; i++) {
+    outputNodes1D[i] = 0.5 * di + i * di;
+  }
+
+  const std::size_t numberOfQuadraturePointsPerCell =
+      std::pow(numberOfQuadraturePointsPerCellPerDimention, solverDimention);
+  const std::size_t numberOfOutputPointsPerCell =
+      std::pow(numberOfOutputPointsPerCellPerDimention, solverDimention);
+
+  Eigen::MatrixXd output(numberOfQuadraturePointsPerCell,
+                         numberOfOutputPointsPerCell);
+  output.setZero();
+
+  const std::size_t legendreOrder =
+      numberOfQuadraturePointsPerCellPerDimention - 1;
+  for (std::size_t out = 0; out < numberOfOutputPointsPerCell; out++) {
+    const std::size_t outi = out / numberOfOutputPointsPerCellPerDimention;
+    const std::size_t outj = out % numberOfOutputPointsPerCellPerDimention;
+
+    const double x = outputNodes1D[outi];
+    const double y = outputNodes1D[outj];
+
+    for (std::size_t quad = 0; quad < numberOfQuadraturePointsPerCell; quad++) {
+      const std::size_t quadi =
+          quad / numberOfQuadraturePointsPerCellPerDimention;
+      const std::size_t quadj =
+          quad % numberOfQuadraturePointsPerCellPerDimention;
+
+      const double basisi = legendreBasis1D(x, legendreOrder, quadi);
+      const double basisj = legendreBasis1D(y, legendreOrder, quadj);
+
+      output(quad, out) = basisi * basisj;
     }
   }
 
@@ -680,6 +1036,7 @@ void LagrangianFemMethod::calcKinematicMassMatrix() {
       kSolverDimention * kNumberOfKinematicPointsTotal,
       kSolverDimention * (2 * kinematicOrder + 1) * (2 * kinematicOrder + 1)));
 
+#pragma omp parallel for
   for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
     const Eigen::MatrixXd cellKinematicMass = quadKinematicCellMass(cell);
     assert(cellKinematicMass.rows() == static_cast<Eigen::MatrixXd::Index>(
@@ -698,8 +1055,11 @@ void LagrangianFemMethod::calcKinematicMassMatrix() {
           const std::size_t nodejIndex =
               getKinematicIndexFromCell(cell, nodej, direction);
 
-          kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) +=
-              cellKinematicMass(nodei, nodej);
+          // #pragma omp critical(kinematicMassMatrixUpdate)
+          {
+            kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) +=
+                cellKinematicMass(nodei, nodej);
+          }
         }
       }
     }
@@ -709,6 +1069,7 @@ void LagrangianFemMethod::calcKinematicMassMatrix() {
 }
 
 void LagrangianFemMethod::calcThermoMassMatrixInv() {
+#pragma omp parallel for
   for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
     for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
       const Eigen::MatrixXd cellThermoMass = quadThermoCellMass(cell, material);
@@ -732,8 +1093,11 @@ void LagrangianFemMethod::calcThermoMassMatrixInv() {
           const std::size_t nodejIndex =
               getThermodynamicIndexFromCell(cell, nodej, material);
 
-          thermoMassMatrixInv.coeffRef(nodeiIndex, nodejIndex) =
-              cellThermoMassInv(nodei, nodej);
+          // #pragma omp critical(thermoMassMatrixInvUpdate)
+          {
+            thermoMassMatrixInv.coeffRef(nodeiIndex, nodejIndex) =
+                cellThermoMassInv(nodei, nodej);
+          }
         }
       }
     }
@@ -749,6 +1113,7 @@ void LagrangianFemMethod::calcForceMatrix(const Eigen::VectorXd &xCalc,
   assert(volFracCalc.size() == volFrac.size());
   assert(eCalc.size() == e.size());
 
+#pragma omp parallel for
   for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
     const Eigen::MatrixXd cellForce =
         quadForceMatrix(cell, xCalc, uCalc, volFracCalc, eCalc);
@@ -770,8 +1135,11 @@ void LagrangianFemMethod::calcForceMatrix(const Eigen::VectorXd &xCalc,
             const std::size_t thermoIndex =
                 getThermodynamicIndexFromCell(cell, nodeThermo, material);
 
-            forceMatrix.coeffRef(kinematicIndex, thermoIndex) =
-                cellForce(kinematicIndexLocal, thermoIndexLocal);
+            // #pragma omp critical(forceMatrixUpdate)
+            {
+              forceMatrix.coeffRef(kinematicIndex, thermoIndex) =
+                  cellForce(kinematicIndexLocal, thermoIndexLocal);
+            }
           }
         }
       }
@@ -915,8 +1283,9 @@ Eigen::MatrixXd LagrangianFemMethod::quadForceMatrix(
                 stressTensor(0, direction) * gradBasis(0) +
                 stressTensor(1, direction) * gradBasis(1);
 
-            output(kinematicIndex, thermoIndex) +=
-                quadWeight * scalarProd * basisThermo * jacobianDet;
+            output(kinematicIndex, thermoIndex) += quadWeight * scalarProd *
+                                                   basisThermo * volFracMat *
+                                                   jacobianDet;
           }
         }
       }
@@ -929,7 +1298,7 @@ Eigen::MatrixXd LagrangianFemMethod::quadForceMatrix(
     }
 
     const std::vector<double> rates = problem.matClosure->calcVolFracRates(
-        volFracs, rhos, ps, soundSpeeds, hmin);
+        volFracs, rhos, ps, soundSpeeds, hmin, dt);
     assert(rates.size() == kNumberOfMaterials);
 
     for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
@@ -1006,7 +1375,7 @@ Eigen::Matrix2d LagrangianFemMethod::calcArtificialViscosity(
 
     for (std::size_t direction = 0; direction < kSolverDimention; direction++) {
       const std::size_t kinematicIndex =
-          getKinematicIndexFromCell(cell, quad, direction);
+          getKinematicIndexFromCell(cell, kinematicNode, direction);
       const double uNode = uCalc(kinematicIndex);
       velocityGrad(0, direction) += uNode * kinematicBasisdx;
       velocityGrad(1, direction) += uNode * kinematicBasisdy;

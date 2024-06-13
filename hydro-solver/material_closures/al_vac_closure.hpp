@@ -1,6 +1,8 @@
 #ifndef HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CLOSURE_HPP_
 #define HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CLOSURE_HPP_
 
+#include <cmath>
+
 #include "../material_closure.hpp"
 
 class AlVacClosure : public MaterialClosure {
@@ -19,28 +21,30 @@ class AlVacClosure : public MaterialClosure {
   virtual std::vector<double> calcVolFracRates(
       const std::vector<double> &volFracs, const std::vector<double> &rhos,
       const std::vector<double> &ps, const std::vector<double> &soundSpeeds,
-      const double h);
+      const double h, const double dt);
 };
 
 inline std::vector<double> AlVacClosure::calcVolFracRates(
     const std::vector<double> &volFracs, const std::vector<double> &rhos,
     const std::vector<double> &ps, const std::vector<double> &soundSpeeds,
-    const double h) {
+    const double h, const double dt) {
   assert(volFracs.size() == kNumberOfMaterials);
   assert(rhos.size() == kNumberOfMaterials);
   assert(ps.size() == kNumberOfMaterials);
   assert(soundSpeeds.size() == kNumberOfMaterials);
 
-  constexpr double pSeparation = -1e9;
+  constexpr double pSeparation = -0.6e9;
   constexpr double pStar = 0.0;
-  constexpr double Ctau = 0.25;
+  constexpr double Ctau = 1.0;
+  constexpr double CL = 0.05;
+  constexpr double DOUBLE_DELTA = 1e-14;
 
   std::vector<double> output(kNumberOfMaterials, 0.0);
 
   const double pAl = ps[0];
   const double volFracAl = volFracs[0];
 
-  if (volFracAl == 1.0 && pAl > pSeparation) {
+  if (std::abs(volFracAl - 1.0) <= DOUBLE_DELTA && pAl > pSeparation) {
     return output;
   }
 
@@ -51,8 +55,17 @@ inline std::vector<double> AlVacClosure::calcVolFracRates(
 
   const double bulkModulus = rhoAl * soundSpeedAl * soundSpeedAl;
 
-  const double rateAl =
-      1.0 / timeScale * (pAl - pStar) * volFracAl / bulkModulus;
+  const double maxRateAl = CL * volFracAl / dt;
+
+  double rateAl = 1.0 / timeScale * (pAl - pStar) * volFracAl / bulkModulus;
+
+  if (volFracAl + rateAl * dt > 1.0 - DOUBLE_DELTA) {
+    rateAl = (1.0 - DOUBLE_DELTA - volFracAl) / dt;
+  }
+
+  if (std::abs(rateAl) > maxRateAl) {
+    rateAl = std::copysign(maxRateAl, rateAl);
+  }
 
   output[0] = rateAl;
 

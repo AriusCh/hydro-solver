@@ -48,6 +48,26 @@ class LagrangianFemMethod : public Method {
       const std::size_t numberOfThermodynamicPointsPerCellPerDimention,
       const std::size_t numberOfQuadraturePointsPerCellPerDimention,
       const std::size_t solverDimention);
+  static Eigen::MatrixXd initKinematicBasisOutputValues(
+      const std::size_t numberOfKinematicPointsPerCellPerDimention,
+      const std::size_t numberOfOutputPointsPerCellPerDimention,
+      const std::size_t solverDimention);
+  static Eigen::MatrixXd initKinematicBasisdxOutputValues(
+      const std::size_t numberOfKinematicPointsPerCellPerDimention,
+      const std::size_t numberOfOutputPointsPerCellPerDimention,
+      const std::size_t solverDimention);
+  static Eigen::MatrixXd initKinematicBasisdyOutputValues(
+      const std::size_t numberOfKinematicPointsPerCellPerDimention,
+      const std::size_t numberOfOutputPointsPerCellPerDimention,
+      const std::size_t solverDimention);
+  static Eigen::MatrixXd initThermodynamicBasisOutputValues(
+      const std::size_t numberOfThermodynamicPointsPerCellPerDimention,
+      const std::size_t numberOfOutputPointsPerCellPerDimention,
+      const std::size_t solverDimention);
+  static Eigen::MatrixXd initQuadBasisOutputValues(
+      const std::size_t numberOfQuadraturePointsPerCellPerDimention,
+      const std::size_t numberOfOutputPointsPerCellPerDimention,
+      const std::size_t solverDimention);
   // INITIALIZATION FUNCTIONS
   void initKinematicVectors();
   void initQuadVectors();
@@ -116,6 +136,8 @@ class LagrangianFemMethod : public Method {
   // STEP FUNCTIONS
   void RK2Step();
 
+  // DUMP FUNCTIONS
+
   // UTILITY FUNCTIONS
   std::size_t getKinematicIndexFromCell(const std::size_t cell,
                                         const std::size_t node,
@@ -144,12 +166,15 @@ class LagrangianFemMethod : public Method {
   const std::size_t kNumberOfKinematicPointsPerCellPerDimention;
   const std::size_t kNumberOfThermodynamicPointsPerCellPerDimention;
   const std::size_t kNumberOfQuadraturePointsPerCellPerDimention;
+  const std::size_t kNumberOfOutputPointsPerCellPerDimention;
   const std::size_t kNumberOfKinematicPointsPerCell;
   const std::size_t kNumberOfThermodynamicPointsPerCell;
   const std::size_t kNumberOfQuadraturePointsPerCell;
+  const std::size_t kNumberOfOutputPointsPerCell;
   const std::size_t kNumberOfKinematicPointsTotal;
   const std::size_t kNumberOfThermodynamicPointsTotal;
   const std::size_t kNumberOfQuadraturePointsTotal;
+  const std::size_t kNumberOfOutputPointsTotal;
 
   const double q1 = 0.5;
   const double q2 = 2.0;
@@ -169,6 +194,12 @@ class LagrangianFemMethod : public Method {
   const Eigen::MatrixXd kinematicBasisdxQuadValues;
   const Eigen::MatrixXd kinematicBasisdyQuadValues;
   const Eigen::MatrixXd thermodynamicBasisQuadValues;
+
+  const Eigen::MatrixXd kinematicBasisOutputValues;
+  const Eigen::MatrixXd kinematicBasisdxOutputValues;
+  const Eigen::MatrixXd kinematicBasisdyOutputValues;
+  const Eigen::MatrixXd thermodynamicBasisOutputValues;
+  const Eigen::MatrixXd quadBasisOutputValues;
 
   Eigen::VectorXd x;           // Kinematic
   Eigen::VectorXd u;           // Kinematic
@@ -206,8 +237,11 @@ inline void LagrangianFemMethod::calcTau(double hmin, double soundSpeed,
                                                      (rhoLocal * hmin * hmin);
   const double tauLocal = alpha / denominator;
 
-  if (tauLocal < tau) {
-    tau = tauLocal;
+#pragma omp critical(tauUpdate)
+  {
+    if (tauLocal < tau) {
+      tau = tauLocal;
+    }
   }
 }
 
