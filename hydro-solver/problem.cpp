@@ -80,6 +80,70 @@ Problem createRiemannProblem(const std::string &name, const double xmin,
   return output;
 }
 
+Problem createVacuumShockProblem(const std::string &name, const double xmin,
+                                 const double xmax, const double tmax,
+                                 const double tMul, const double u,
+                                 const double rho, const double p,
+                                 const double gamma) {
+  constexpr std::size_t kNumberOfMatrials = 1;
+
+  auto uInitializer = [u]([[maybe_unused]] const double x,
+                          [[maybe_unused]] const double y) { return u; };
+
+  auto vInitializer = []([[maybe_unused]] const double x,
+                         [[maybe_unused]] const double y) { return 0.0; };
+
+  auto volFractionInitializer = []([[maybe_unused]] const double x,
+                                   [[maybe_unused]] const double y) {
+    std::vector<double> output(kNumberOfMatrials, 1.0);
+    return output;
+  };
+
+  auto rhoInitializer = [rho]([[maybe_unused]] const double x,
+                              [[maybe_unused]] const double y) {
+    std::vector<double> output(kNumberOfMatrials);
+    output[0] = rho;
+    return output;
+  };
+  auto pInitializer = [p]([[maybe_unused]] const double x,
+                          [[maybe_unused]] const double y) {
+    std::vector<double> output(kNumberOfMatrials);
+    output[0] = p;
+    return output;
+  };
+  std::vector<std::shared_ptr<EOS>> eoses{std::make_shared<EOSIdealGas>(gamma)};
+
+  std::shared_ptr<MaterialClosure> matClosure =
+      std::make_shared<MaterialClosure>(kNumberOfMatrials);
+
+  Problem output{name,
+                 xmin,
+                 xmax,
+                 0.0,
+                 1.0,
+                 0.0,
+                 tmax,
+                 {},
+                 tMul,
+                 ProblemDimension::e1D,
+                 BoundaryType::eFree,
+                 BoundaryType::eWall,
+                 BoundaryType::eWall,
+                 BoundaryType::eWall,
+                 kNumberOfMatrials,
+                 uInitializer,
+                 vInitializer,
+                 volFractionInitializer,
+                 rhoInitializer,
+                 pInitializer,
+                 eoses,
+                 std::move(matClosure)
+
+  };
+
+  return output;
+}
+
 Problem createBlastWaveProblem(
     const std::string &name, const double xmin, const double xmax,
     const double ymin, const double ymax, const double spl, const double tmax,
@@ -250,6 +314,8 @@ Problem createLaserVolumeTargetWithSeparationProblem(
 const Problem DefaultProblems::sodTest =
     createRiemannProblem("sod-test", 0.0, 1.0, 0.5, 0.2, 1.0, 0.0, 1.0, 1.0,
                          0.0, 0.125, 0.1, 5.0 / 3.0);
+const Problem DefaultProblems::vacuumShock = createVacuumShockProblem(
+    "vacuum-shock", 0.0, 1.0, 0.2, 1.0, 0.0, 1.0, 1.0, 1.4);
 const Problem DefaultProblems::blastWave =
     createBlastWaveProblem("blast-wave", 0.0, 1.0, 0.0, 1.0, 0.4, 0.25, 1.0,
                            0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.125, 0.1, 1.4);

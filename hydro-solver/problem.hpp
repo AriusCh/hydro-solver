@@ -49,6 +49,7 @@ struct Problem {
 
 struct DefaultProblems {
   static const Problem sodTest;
+  static const Problem vacuumShock;
   static const Problem blastWave;
   static const Problem laserVolumeTarget;
   static const Problem laserVolumeTargetFreqOut;
@@ -64,6 +65,7 @@ Problem createRiemannProblem(const std::string &name, const double xmin,
                              const double pL, const double uR,
                              const double rhoR, const double pR,
                              const double gamma);
+Problem createVacuumShockProblem(const std::string &name, const double xmin, const double xmax, const double tmax, const double tMul, const double u, const double rho, const double p, const double gamma);
 Problem createBlastWaveProblem(
     const std::string &name, const double xmin, const double xmax,
     const double ymin, const double ymax, const double spl, const double tmax,
