@@ -5,9 +5,9 @@
 #include "simulation.hpp"
 
 int main() {
-  const Problem &problem = DefaultProblems::vacuumShock;
+  const Problem &problem = DefaultProblems::laserVolumeTargetWithSeparation;
   std::unique_ptr<LagrangianFemMethod> mtd =
-      std::make_unique<LagrangianFemMethod>(problem, 1000, 1, 2);
+      std::make_unique<LagrangianFemMethod>(problem, 90, 80, 2);
   Simulation sim(std::move(mtd));
   sim.run();
 
