@@ -18,15 +18,19 @@ LagrangianFemMethod::LagrangianFemMethod(const Problem &problem_,
     : Method(std::to_string(order_) + "-" + std::to_string(xCells_) + "x" +
                  std::to_string(yCells_),
              problem_),
-      xCells(xCells_), yCells(yCells_), kNumberOfCells(xCells * yCells),
-      kOrder(order_), kNumberOfMaterials(problem.numberOfMaterials),
+      xCells(xCells_),
+      yCells(yCells_),
+      kNumberOfCells(xCells * yCells),
+      kOrder(order_),
+      kNumberOfMaterials(problem.numberOfMaterials),
       kNumberOfKinematicPointsPerCellPerDimention(kOrder + 1),
       kNumberOfThermodynamicPointsPerCellPerDimention(kOrder),
       kNumberOfQuadraturePointsPerCellPerDimention(2 * kOrder),
       // kNumberOfOutputPointsPerCellPerDimention(kOrder == 1 ? 1
       //                                                      : 5 * (kOrder /
       //                                                      2)),
-      kNumberOfOutputPointsPerCellPerDimention(1),
+      kNumberOfOutputPointsPerCellPerDimention(
+          kNumberOfQuadraturePointsPerCellPerDimention),
       kNumberOfKinematicPointsPerCell(std::pow(
           kNumberOfKinematicPointsPerCellPerDimention, kSolverDimention)),
       kNumberOfThermodynamicPointsPerCell(std::pow(
@@ -57,21 +61,35 @@ LagrangianFemMethod::LagrangianFemMethod(const Problem &problem_,
       thermodynamicBasisQuadValues(initThermodynamicBasisQuadValues(
           kNumberOfThermodynamicPointsPerCellPerDimention,
           kNumberOfQuadraturePointsPerCellPerDimention, kSolverDimention)),
-      kinematicBasisOutputValues(initKinematicBasisOutputValues(
+      // kinematicBasisOutputValues(initKinematicBasisOutputValues(
+      //     kNumberOfKinematicPointsPerCellPerDimention,
+      //     kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      // kinematicBasisdxOutputValues(initKinematicBasisdxOutputValues(
+      //     kNumberOfKinematicPointsPerCellPerDimention,
+      //     kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      // kinematicBasisdyOutputValues(initKinematicBasisdyOutputValues(
+      //     kNumberOfKinematicPointsPerCellPerDimention,
+      //     kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      // thermodynamicBasisOutputValues(initThermodynamicBasisOutputValues(
+      //     kNumberOfThermodynamicPointsPerCellPerDimention,
+      //     kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
+      // quadBasisOutputValues(initQuadBasisOutputValues(
+      //     kNumberOfQuadraturePointsPerCellPerDimention,
+      //     kNumberOfOutputPointsPerCellPerDimention, kSolverDimention))
+      kinematicBasisOutputValues(initKinematicBasisQuadValues(
           kNumberOfKinematicPointsPerCellPerDimention,
           kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
-      kinematicBasisdxOutputValues(initKinematicBasisdxOutputValues(
+      kinematicBasisdxOutputValues(initKinematicBasisdxQuadValues(
           kNumberOfKinematicPointsPerCellPerDimention,
           kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
-      kinematicBasisdyOutputValues(initKinematicBasisdyOutputValues(
+      kinematicBasisdyOutputValues(initKinematicBasisdyQuadValues(
           kNumberOfKinematicPointsPerCellPerDimention,
           kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
-      thermodynamicBasisOutputValues(initThermodynamicBasisOutputValues(
+      thermodynamicBasisOutputValues(initThermodynamicBasisQuadValues(
           kNumberOfThermodynamicPointsPerCellPerDimention,
           kNumberOfOutputPointsPerCellPerDimention, kSolverDimention)),
-      quadBasisOutputValues(initQuadBasisOutputValues(
-          kNumberOfQuadraturePointsPerCellPerDimention,
-          kNumberOfOutputPointsPerCellPerDimention, kSolverDimention))
+      quadBasisOutputValues(Eigen::MatrixXd::Identity(
+          kNumberOfOutputPointsPerCell, kNumberOfOutputPointsPerCell))
 
 {
   initKinematicVectors();
@@ -758,12 +776,12 @@ void LagrangianFemMethod::initKinematicVectors() {
   const double celldy = (problem.ymax - problem.ymin) / yCells;
 
   switch (problem.dimension) {
-  case ProblemDimension::e1D:
-    l0 = celldx / kOrder;
-    break;
-  case ProblemDimension::e2D:
-    l0 = std::sqrt(celldx * celldy) / kOrder;
-    break;
+    case ProblemDimension::e1D:
+      l0 = celldx / kOrder;
+      break;
+    case ProblemDimension::e2D:
+      l0 = std::sqrt(celldx * celldy) / kOrder;
+      break;
   }
 
   const std::size_t kinematicOrder =
@@ -1147,8 +1165,8 @@ void LagrangianFemMethod::calcForceMatrix(const Eigen::VectorXd &xCalc,
   forceMatrix.makeCompressed();
 }
 
-Eigen::MatrixXd
-LagrangianFemMethod::quadKinematicCellMass(const std::size_t cell) {
+Eigen::MatrixXd LagrangianFemMethod::quadKinematicCellMass(
+    const std::size_t cell) {
   Eigen::MatrixXd output(kNumberOfKinematicPointsPerCell,
                          kNumberOfKinematicPointsPerCell);
   output.setZero();
@@ -1186,9 +1204,8 @@ LagrangianFemMethod::quadKinematicCellMass(const std::size_t cell) {
   return output;
 }
 
-Eigen::MatrixXd
-LagrangianFemMethod::quadThermoCellMass(const std::size_t cell,
-                                        const std::size_t material) {
+Eigen::MatrixXd LagrangianFemMethod::quadThermoCellMass(
+    const std::size_t cell, const std::size_t material) {
   Eigen::MatrixXd output(kNumberOfThermodynamicPointsPerCell,
                          kNumberOfThermodynamicPointsPerCell);
   output.setZero();
@@ -1223,9 +1240,9 @@ Eigen::MatrixXd LagrangianFemMethod::quadForceMatrix(
     const std::size_t cell, const Eigen::VectorXd &xCalc,
     const Eigen::VectorXd &uCalc, const Eigen::VectorXd &volFracCalc,
     const Eigen::VectorXd &eCalc) {
-  Eigen::MatrixXd output(kSolverDimention * kNumberOfKinematicPointsPerCell,
-                         kNumberOfMaterials *
-                             kNumberOfThermodynamicPointsPerCell);
+  Eigen::MatrixXd output(
+      kSolverDimention * kNumberOfKinematicPointsPerCell,
+      kNumberOfMaterials * kNumberOfThermodynamicPointsPerCell);
   output.setZero();
 
   for (std::size_t quad = 0; quad < kNumberOfQuadraturePointsPerCell; quad++) {
@@ -1445,33 +1462,15 @@ void LagrangianFemMethod::resolveBoundaryKinematicMassMatrix() {
 }
 void LagrangianFemMethod::resolveLeftBoundaryKinematicMassMatrix() {
   switch (problem.leftBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = 0; cell < yCells; cell++) {
-      for (std::size_t nodei = 0;
-           nodei < kNumberOfKinematicPointsPerCellPerDimention; nodei++) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          constexpr std::size_t direction = 0;
-          const std::size_t nodeiIndex =
-              getKinematicIndexFromCell(cell, nodei, direction);
-          const std::size_t nodejIndex =
-              getKinematicIndexFromCell(cell, nodej, direction);
-          kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
-          kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
-        }
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = 0; cell < yCells; cell++) {
-      for (std::size_t nodei = 0;
-           nodei < kNumberOfKinematicPointsPerCellPerDimention; nodei++) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          for (std::size_t direction = 0; direction < kSolverDimention;
-               direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = 0; cell < yCells; cell++) {
+        for (std::size_t nodei = 0;
+             nodei < kNumberOfKinematicPointsPerCellPerDimention; nodei++) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            constexpr std::size_t direction = 0;
             const std::size_t nodeiIndex =
                 getKinematicIndexFromCell(cell, nodei, direction);
             const std::size_t nodejIndex =
@@ -1481,41 +1480,42 @@ void LagrangianFemMethod::resolveLeftBoundaryKinematicMassMatrix() {
           }
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = 0; cell < yCells; cell++) {
+        for (std::size_t nodei = 0;
+             nodei < kNumberOfKinematicPointsPerCellPerDimention; nodei++) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            for (std::size_t direction = 0; direction < kSolverDimention;
+                 direction++) {
+              const std::size_t nodeiIndex =
+                  getKinematicIndexFromCell(cell, nodei, direction);
+              const std::size_t nodejIndex =
+                  getKinematicIndexFromCell(cell, nodej, direction);
+              kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
+              kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
+            }
+          }
+        }
+      }
+      break;
   }
 }
 void LagrangianFemMethod::resolveTopBoundaryKinematicMassMatrix() {
   switch (problem.topBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = yCells - 1; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t nodei = kNumberOfKinematicPointsPerCellPerDimention - 1;
-           nodei < kNumberOfKinematicPointsPerCell;
-           nodei += kNumberOfKinematicPointsPerCellPerDimention) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          constexpr std::size_t direction = 1;
-          const std::size_t nodeiIndex =
-              getKinematicIndexFromCell(cell, nodei, direction);
-          const std::size_t nodejIndex =
-              getKinematicIndexFromCell(cell, nodej, direction);
-          kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
-          kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
-        }
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = yCells - 1; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t nodei = kNumberOfKinematicPointsPerCellPerDimention - 1;
-           nodei < kNumberOfKinematicPointsPerCell;
-           nodei += kNumberOfKinematicPointsPerCellPerDimention) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          for (std::size_t direction = 0; direction < kSolverDimention;
-               direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = yCells - 1; cell < kNumberOfCells;
+           cell += yCells) {
+        for (std::size_t nodei =
+                 kNumberOfKinematicPointsPerCellPerDimention - 1;
+             nodei < kNumberOfKinematicPointsPerCell;
+             nodei += kNumberOfKinematicPointsPerCellPerDimention) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            constexpr std::size_t direction = 1;
             const std::size_t nodeiIndex =
                 getKinematicIndexFromCell(cell, nodei, direction);
             const std::size_t nodejIndex =
@@ -1525,45 +1525,45 @@ void LagrangianFemMethod::resolveTopBoundaryKinematicMassMatrix() {
           }
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = yCells - 1; cell < kNumberOfCells;
+           cell += yCells) {
+        for (std::size_t nodei =
+                 kNumberOfKinematicPointsPerCellPerDimention - 1;
+             nodei < kNumberOfKinematicPointsPerCell;
+             nodei += kNumberOfKinematicPointsPerCellPerDimention) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            for (std::size_t direction = 0; direction < kSolverDimention;
+                 direction++) {
+              const std::size_t nodeiIndex =
+                  getKinematicIndexFromCell(cell, nodei, direction);
+              const std::size_t nodejIndex =
+                  getKinematicIndexFromCell(cell, nodej, direction);
+              kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
+              kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
+            }
+          }
+        }
+      }
+      break;
   }
 }
 void LagrangianFemMethod::resolveRightBoundaryKinematicMassMatrix() {
   switch (problem.rightBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
-         cell++) {
-      for (std::size_t nodei =
-               (kNumberOfKinematicPointsPerCellPerDimention - 1) *
-               kNumberOfKinematicPointsPerCellPerDimention;
-           nodei < kNumberOfKinematicPointsPerCell; nodei++) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          constexpr std::size_t direction = 0;
-          const std::size_t nodeiIndex =
-              getKinematicIndexFromCell(cell, nodei, direction);
-          const std::size_t nodejIndex =
-              getKinematicIndexFromCell(cell, nodej, direction);
-          kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
-          kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
-        }
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
-         cell++) {
-      for (std::size_t nodei =
-               (kNumberOfKinematicPointsPerCellPerDimention - 1) *
-               kNumberOfKinematicPointsPerCellPerDimention;
-           nodei < kNumberOfKinematicPointsPerCell; nodei++) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          for (std::size_t direction = 0; direction < kSolverDimention;
-               direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
+           cell++) {
+        for (std::size_t nodei =
+                 (kNumberOfKinematicPointsPerCellPerDimention - 1) *
+                 kNumberOfKinematicPointsPerCellPerDimention;
+             nodei < kNumberOfKinematicPointsPerCell; nodei++) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            constexpr std::size_t direction = 0;
             const std::size_t nodeiIndex =
                 getKinematicIndexFromCell(cell, nodei, direction);
             const std::size_t nodejIndex =
@@ -1573,40 +1573,42 @@ void LagrangianFemMethod::resolveRightBoundaryKinematicMassMatrix() {
           }
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
+           cell++) {
+        for (std::size_t nodei =
+                 (kNumberOfKinematicPointsPerCellPerDimention - 1) *
+                 kNumberOfKinematicPointsPerCellPerDimention;
+             nodei < kNumberOfKinematicPointsPerCell; nodei++) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            for (std::size_t direction = 0; direction < kSolverDimention;
+                 direction++) {
+              const std::size_t nodeiIndex =
+                  getKinematicIndexFromCell(cell, nodei, direction);
+              const std::size_t nodejIndex =
+                  getKinematicIndexFromCell(cell, nodej, direction);
+              kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
+              kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
+            }
+          }
+        }
+      }
+      break;
   }
 }
 void LagrangianFemMethod::resolveBottomBoundaryKinematicMassMatrix() {
   switch (problem.bottomBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t nodei = 0; nodei < kNumberOfKinematicPointsPerCell;
-           nodei += kNumberOfKinematicPointsPerCellPerDimention) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          constexpr std::size_t direction = 1;
-          const std::size_t nodeiIndex =
-              getKinematicIndexFromCell(cell, nodei, direction);
-          const std::size_t nodejIndex =
-              getKinematicIndexFromCell(cell, nodej, direction);
-
-          kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
-          kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
-        }
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t nodei = 0; nodei < kNumberOfKinematicPointsPerCell;
-           nodei += kNumberOfKinematicPointsPerCellPerDimention) {
-        for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
-             nodej++) {
-          for (std::size_t direction = 0; direction < kSolverDimention;
-               direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
+        for (std::size_t nodei = 0; nodei < kNumberOfKinematicPointsPerCell;
+             nodei += kNumberOfKinematicPointsPerCellPerDimention) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            constexpr std::size_t direction = 1;
             const std::size_t nodeiIndex =
                 getKinematicIndexFromCell(cell, nodei, direction);
             const std::size_t nodejIndex =
@@ -1617,8 +1619,27 @@ void LagrangianFemMethod::resolveBottomBoundaryKinematicMassMatrix() {
           }
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
+        for (std::size_t nodei = 0; nodei < kNumberOfKinematicPointsPerCell;
+             nodei += kNumberOfKinematicPointsPerCellPerDimention) {
+          for (std::size_t nodej = 0; nodej < kNumberOfKinematicPointsPerCell;
+               nodej++) {
+            for (std::size_t direction = 0; direction < kSolverDimention;
+                 direction++) {
+              const std::size_t nodeiIndex =
+                  getKinematicIndexFromCell(cell, nodei, direction);
+              const std::size_t nodejIndex =
+                  getKinematicIndexFromCell(cell, nodej, direction);
+
+              kinematicMassMatrix.coeffRef(nodeiIndex, nodejIndex) = 0.0;
+              kinematicMassMatrix.coeffRef(nodejIndex, nodeiIndex) = 0.0;
+            }
+          }
+        }
+      }
+      break;
   }
 }
 
@@ -1631,66 +1652,68 @@ void LagrangianFemMethod::resolveBoundaryForceVector(Eigen::VectorXd &FuCalc) {
 void LagrangianFemMethod::resolveLeftBoundaryForceVector(
     Eigen::VectorXd &FuCalc) {
   switch (problem.leftBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = 0; cell < yCells; cell++) {
-      for (std::size_t node = 0;
-           node < kNumberOfKinematicPointsPerCellPerDimention; node++) {
-        constexpr std::size_t direction = 0;
-        const std::size_t kinematicIndex =
-            getKinematicIndexFromCell(cell, node, direction);
-        FuCalc(kinematicIndex) = 0.0;
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = 0; cell < yCells; cell++) {
-      for (std::size_t node = 0;
-           node < kNumberOfKinematicPointsPerCellPerDimention; node++) {
-        for (std::size_t direction = 0; direction < kSolverDimention;
-             direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = 0; cell < yCells; cell++) {
+        for (std::size_t node = 0;
+             node < kNumberOfKinematicPointsPerCellPerDimention; node++) {
+          constexpr std::size_t direction = 0;
           const std::size_t kinematicIndex =
               getKinematicIndexFromCell(cell, node, direction);
           FuCalc(kinematicIndex) = 0.0;
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = 0; cell < yCells; cell++) {
+        for (std::size_t node = 0;
+             node < kNumberOfKinematicPointsPerCellPerDimention; node++) {
+          for (std::size_t direction = 0; direction < kSolverDimention;
+               direction++) {
+            const std::size_t kinematicIndex =
+                getKinematicIndexFromCell(cell, node, direction);
+            FuCalc(kinematicIndex) = 0.0;
+          }
+        }
+      }
+      break;
   }
 }
 void LagrangianFemMethod::resolveTopBoundaryForceVector(
     Eigen::VectorXd &FuCalc) {
   assert(yCells >= 1);
   switch (problem.topBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = yCells - 1; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t node = kNumberOfKinematicPointsPerCellPerDimention - 1;
-           node < kNumberOfKinematicPointsPerCell;
-           node += kNumberOfKinematicPointsPerCellPerDimention) {
-        constexpr std::size_t direction = 1;
-        const std::size_t kinematicIndex =
-            getKinematicIndexFromCell(cell, node, direction);
-        FuCalc(kinematicIndex) = 0.0;
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = yCells - 1; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t node = kNumberOfKinematicPointsPerCellPerDimention - 1;
-           node < kNumberOfKinematicPointsPerCell;
-           node += kNumberOfKinematicPointsPerCellPerDimention) {
-        for (std::size_t direction = 0; direction < kSolverDimention;
-             direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = yCells - 1; cell < kNumberOfCells;
+           cell += yCells) {
+        for (std::size_t node = kNumberOfKinematicPointsPerCellPerDimention - 1;
+             node < kNumberOfKinematicPointsPerCell;
+             node += kNumberOfKinematicPointsPerCellPerDimention) {
+          constexpr std::size_t direction = 1;
           const std::size_t kinematicIndex =
               getKinematicIndexFromCell(cell, node, direction);
           FuCalc(kinematicIndex) = 0.0;
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = yCells - 1; cell < kNumberOfCells;
+           cell += yCells) {
+        for (std::size_t node = kNumberOfKinematicPointsPerCellPerDimention - 1;
+             node < kNumberOfKinematicPointsPerCell;
+             node += kNumberOfKinematicPointsPerCellPerDimention) {
+          for (std::size_t direction = 0; direction < kSolverDimention;
+               direction++) {
+            const std::size_t kinematicIndex =
+                getKinematicIndexFromCell(cell, node, direction);
+            FuCalc(kinematicIndex) = 0.0;
+          }
+        }
+      }
+      break;
   }
 }
 void LagrangianFemMethod::resolveRightBoundaryForceVector(
@@ -1698,69 +1721,69 @@ void LagrangianFemMethod::resolveRightBoundaryForceVector(
   assert(xCells >= 1);
   assert(kNumberOfKinematicPointsPerCellPerDimention >= 1);
   switch (problem.rightBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
-         cell++) {
-      for (std::size_t node =
-               (kNumberOfKinematicPointsPerCellPerDimention - 1) *
-               kNumberOfKinematicPointsPerCellPerDimention;
-           node < kNumberOfKinematicPointsPerCell; node++) {
-        constexpr std::size_t direction = 0;
-        const std::size_t kinematicIndex =
-            getKinematicIndexFromCell(cell, node, direction);
-        FuCalc(kinematicIndex) = 0.0;
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
-         cell++) {
-      for (std::size_t node =
-               (kNumberOfKinematicPointsPerCellPerDimention - 1) *
-               kNumberOfKinematicPointsPerCellPerDimention;
-           node < kNumberOfKinematicPointsPerCell; node++) {
-        for (std::size_t direction = 0; direction < kSolverDimention;
-             direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
+           cell++) {
+        for (std::size_t node =
+                 (kNumberOfKinematicPointsPerCellPerDimention - 1) *
+                 kNumberOfKinematicPointsPerCellPerDimention;
+             node < kNumberOfKinematicPointsPerCell; node++) {
+          constexpr std::size_t direction = 0;
           const std::size_t kinematicIndex =
               getKinematicIndexFromCell(cell, node, direction);
           FuCalc(kinematicIndex) = 0.0;
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = (xCells - 1) * yCells; cell < kNumberOfCells;
+           cell++) {
+        for (std::size_t node =
+                 (kNumberOfKinematicPointsPerCellPerDimention - 1) *
+                 kNumberOfKinematicPointsPerCellPerDimention;
+             node < kNumberOfKinematicPointsPerCell; node++) {
+          for (std::size_t direction = 0; direction < kSolverDimention;
+               direction++) {
+            const std::size_t kinematicIndex =
+                getKinematicIndexFromCell(cell, node, direction);
+            FuCalc(kinematicIndex) = 0.0;
+          }
+        }
+      }
+      break;
   }
 }
 void LagrangianFemMethod::resolveBottomBoundaryForceVector(
     Eigen::VectorXd &FuCalc) {
   switch (problem.bottomBoundaryType) {
-  case BoundaryType::eFree:
-    break;
-  case BoundaryType::eWall:
-    for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
-           node += kNumberOfKinematicPointsPerCellPerDimention) {
-        constexpr std::size_t direction = 1;
-        const std::size_t kinematicIndex =
-            getKinematicIndexFromCell(cell, node, direction);
-        FuCalc(kinematicIndex) = 0.0;
-      }
-    }
-    break;
-  case BoundaryType::eNoSlipWall:
-    for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
-      for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
-           node += kNumberOfKinematicPointsPerCellPerDimention) {
-        for (std::size_t direction = 0; direction < kSolverDimention;
-             direction++) {
+    case BoundaryType::eFree:
+      break;
+    case BoundaryType::eWall:
+      for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
+        for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
+             node += kNumberOfKinematicPointsPerCellPerDimention) {
+          constexpr std::size_t direction = 1;
           const std::size_t kinematicIndex =
               getKinematicIndexFromCell(cell, node, direction);
           FuCalc(kinematicIndex) = 0.0;
         }
       }
-    }
-    break;
+      break;
+    case BoundaryType::eNoSlipWall:
+      for (std::size_t cell = 0; cell < kNumberOfCells; cell += yCells) {
+        for (std::size_t node = 0; node < kNumberOfKinematicPointsPerCell;
+             node += kNumberOfKinematicPointsPerCellPerDimention) {
+          for (std::size_t direction = 0; direction < kSolverDimention;
+               direction++) {
+            const std::size_t kinematicIndex =
+                getKinematicIndexFromCell(cell, node, direction);
+            FuCalc(kinematicIndex) = 0.0;
+          }
+        }
+      }
+      break;
   }
 }
 
@@ -1836,10 +1859,9 @@ void LagrangianFemMethod::RK2Step() {
   }
 }
 
-Eigen::Matrix2d
-LagrangianFemMethod::calcJacobian(const std::size_t cell,
-                                  const std::size_t quad,
-                                  const Eigen::VectorXd &xCalc) const {
+Eigen::Matrix2d LagrangianFemMethod::calcJacobian(
+    const std::size_t cell, const std::size_t quad,
+    const Eigen::VectorXd &xCalc) const {
   Eigen::Matrix2d output;
   output.setZero();
 

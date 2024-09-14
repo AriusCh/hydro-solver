@@ -33,7 +33,7 @@ inline std::vector<double> AlVacClosure::calcVolFracRates(
   assert(ps.size() == kNumberOfMaterials);
   assert(soundSpeeds.size() == kNumberOfMaterials);
 
-  constexpr double pSeparation = -0.6e9;
+  constexpr double pSeparation = -1e9;
   constexpr double pStar = 0.0;
   constexpr double Ctau = 1.0;
   constexpr double CL = 0.05;
