@@ -1,23 +1,23 @@
-#ifndef HYDRO_SOLVER_METHODS_LAGRANGIAN_FEM_METHOD_HPP_
-#define HYDRO_SOLVER_METHODS_LAGRANGIAN_FEM_METHOD_HPP_
+#ifndef HYDRO_SOLVER_METHODS_PLASTIC_ELASTIC_FEM_METHOD_HPP_
+#define HYDRO_SOLVER_METHODS_PLASTIC_ELASTIC_FEM_METHOD_HPP_
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
 #include "../method.hpp"
 
-class LagrangianFemMethod : public Method {
+class PlasticElasticMethod : public Method {
  public:
-  LagrangianFemMethod(const Problem &problem_, const std::size_t xCells_,
-                      const std::size_t yCells_, const std::size_t order_);
+  PlasticElasticMethod(const Problem &problem_, const std::size_t xCells_,
+                       const std::size_t yCells_, const std::size_t order_);
 
-  LagrangianFemMethod(const LagrangianFemMethod &) = delete;
-  LagrangianFemMethod(LagrangianFemMethod &&) = delete;
+  PlasticElasticMethod(const PlasticElasticMethod &) = delete;
+  PlasticElasticMethod(PlasticElasticMethod &&) = delete;
 
-  LagrangianFemMethod &operator=(const LagrangianFemMethod &) = delete;
-  LagrangianFemMethod &operator=(LagrangianFemMethod &&) = delete;
+  PlasticElasticMethod &operator=(const PlasticElasticMethod &) = delete;
+  PlasticElasticMethod &operator=(PlasticElasticMethod &&) = delete;
 
-  virtual ~LagrangianFemMethod() = default;
+  virtual ~PlasticElasticMethod() = default;
 
  public:
   virtual void dumpSolverInfo() const override;
@@ -79,6 +79,9 @@ class LagrangianFemMethod : public Method {
   void initForceMatrix();
   void initVolFracRateVector();
   void initEnergyExchangeRateVector();
+  void initDeviatorStressTensorVectors();
+  void initDeviatorStressRateVectors();
+  void initEquivalentPlasticStrainVector();
   void initKinematicSolver();
 
   // CALC METHODS
@@ -87,17 +90,29 @@ class LagrangianFemMethod : public Method {
   void calcForceMatrix(const Eigen::VectorXd &xCalc,
                        const Eigen::VectorXd &uCalc,
                        const Eigen::VectorXd &volFracCalc,
-                       const Eigen::VectorXd &eCalc);
+                       const Eigen::VectorXd &eCalc,
+                       const Eigen::VectorXd &deviatorStressTensor_00_calc,
+                       const Eigen::VectorXd &deviatorStressTensor_01_calc,
+                       const Eigen::VectorXd &deviatorStressTensor_10_calc,
+                       const Eigen::VectorXd &deviatorStressTensor_11_calc);
+  void radialReturn(Eigen::VectorXd &deviatorStressTensor_00_calc,
+                    Eigen::VectorXd &deviatorStressTensor_01_calc,
+                    Eigen::VectorXd &deviatorStressTensor_10_calc,
+                    Eigen::VectorXd &deviatorStressTensor_11_calc,
+                    Eigen::VectorXd &equivalentPlasticStrain_calc);
 
   // QUAD METHODS
   Eigen::MatrixXd quadKinematicCellMass(const std::size_t cell);
   Eigen::MatrixXd quadThermoCellMass(const std::size_t cell,
                                      const std::size_t material);
-  Eigen::MatrixXd quadForceMatrix(const std::size_t cell,
-                                  const Eigen::VectorXd &xCalc,
-                                  const Eigen::VectorXd &uCalc,
-                                  const Eigen::VectorXd &volFracCalc,
-                                  const Eigen::VectorXd &eCalc);
+  Eigen::MatrixXd quadForceMatrix(
+      const std::size_t cell, const Eigen::VectorXd &xCalc,
+      const Eigen::VectorXd &uCalc, const Eigen::VectorXd &volFracCalc,
+      const Eigen::VectorXd &eCalc,
+      const Eigen::VectorXd &deviatorStressTensor_00_calc,
+      const Eigen::VectorXd &deviatorStressTensor_01_calc,
+      const Eigen::VectorXd &deviatorStressTensor_10_calc,
+      const Eigen::VectorXd &deviatorStressTensor_11_calc);
 
   // STRESS CALC METHODS
   Eigen::Matrix2d calcStressTensor(
@@ -106,7 +121,11 @@ class LagrangianFemMethod : public Method {
       double &pLocal, double &maxViscosityCoeff, double &velocityScalarGrad,
       const Eigen::Matrix2d &jacobian, const double jacobianDet,
       const Eigen::Matrix2d &jacobianInv, const Eigen::VectorXd &uCalc,
-      const Eigen::VectorXd &volFracCalc, const Eigen::VectorXd &eCalc);
+      const Eigen::VectorXd &volFracCalc, const Eigen::VectorXd &eCalc,
+      const Eigen::VectorXd &deviatorStressTensor_00_calc,
+      const Eigen::VectorXd &deviatorStressTensor_01_calc,
+      const Eigen::VectorXd &deviatorStressTensor_10_calc,
+      const Eigen::VectorXd &deviatorStressTensor_11_calc);
   Eigen::Matrix2d calcArtificialViscosity(
       const std::size_t cell, const std::size_t quad, const double soundSpeed,
       const double rhoLocal, double &maxViscosityCoeff,
@@ -119,6 +138,15 @@ class LagrangianFemMethod : public Method {
                             const Eigen::Matrix2d &velocityGrad,
                             const Eigen::Matrix2d &jacobian,
                             const Eigen::Matrix2d &jacobianInitial);
+  Eigen::Matrix2d calcDeviatorTensor(
+      const std::size_t cell, const std::size_t quad,
+      const std::size_t material, const double rhoLocal,
+      const double jacobianDet, const Eigen::Matrix2d &jacobianInv,
+      const Eigen::VectorXd &uCalc,
+      const Eigen::VectorXd &deviatorStressTensor_00_calc,
+      const Eigen::VectorXd &deviatorStressTensor_01_calc,
+      const Eigen::VectorXd &deviatorStressTensor_10_calc,
+      const Eigen::VectorXd &deviatorStressTensor_11_calc);
   void calcTau(double hmin, double soundSpeed, double rhoLocal,
                double maxViscosityCoeff);
 
@@ -139,6 +167,12 @@ class LagrangianFemMethod : public Method {
   void RK2Step();
 
   // DUMP FUNCTIONS
+  void dumpPlasticityThreshold(
+      const std::filesystem::path &dataOutputDir) const;
+  void dumpDeviatorStressTensor(
+      const std::filesystem::path &dataOutputDir) const;
+  void dumpEquivalentPlasticStrain(
+      const std::filesystem::path &dataOutputDir) const;
 
   // UTILITY FUNCTIONS
   std::size_t getKinematicIndexFromCell(const std::size_t cell,
@@ -178,7 +212,7 @@ class LagrangianFemMethod : public Method {
   const std::size_t kNumberOfQuadraturePointsTotal;
   const std::size_t kNumberOfOutputPointsTotal;
 
-  const double q1 = 0.5;
+  const double q1 = 0.1;
   const double q2 = 2.0;
   const double alpha = 0.5;
   const double alphamu = 2.5;
@@ -209,6 +243,13 @@ class LagrangianFemMethod : public Method {
   Eigen::VectorXd rhoInitial;  // Quad
   Eigen::VectorXd e;           // Thermo
 
+  Eigen::VectorXd stress_deviator_00;  // Thermo
+  Eigen::VectorXd stress_deviator_01;  // Thermo
+  Eigen::VectorXd stress_deviator_10;  // Thermo
+  Eigen::VectorXd stress_deviator_11;  // Thermo
+
+  Eigen::VectorXd equivalent_plastic_strain;  // Thermo
+
   Eigen::VectorXd xInitial;        // Kinematic
   Eigen::VectorXd volFracInitial;  // Quad
 
@@ -218,6 +259,11 @@ class LagrangianFemMethod : public Method {
   Eigen::SparseMatrix<double> forceMatrix;
   Eigen::VectorXd volFracRate;
   Eigen::VectorXd energyExchangeRate;
+
+  Eigen::VectorXd deviator_rate_00;
+  Eigen::VectorXd deviator_rate_01;
+  Eigen::VectorXd deviator_rate_10;
+  Eigen::VectorXd deviator_rate_11;
 
   Eigen::ConjugateGradient<Eigen::SparseMatrix<double>,
                            Eigen::Lower | Eigen::Upper>
@@ -229,13 +275,19 @@ class LagrangianFemMethod : public Method {
   Eigen::VectorXd volFrac05;
   Eigen::VectorXd e05;
 
+  Eigen::VectorXd stress_deviator_00_05;
+  Eigen::VectorXd stress_deviator_01_05;
+  Eigen::VectorXd stress_deviator_10_05;
+  Eigen::VectorXd stress_deviator_11_05;
+  Eigen::VectorXd equivalent_plastic_strain_05;
+
   Eigen::VectorXd Fu;
   Eigen::VectorXd Fe;
 };
 
-inline void LagrangianFemMethod::calcTau(double hmin, double soundSpeed,
-                                         double rhoLocal,
-                                         double maxViscosityCoeff) {
+inline void PlasticElasticMethod::calcTau(double hmin, double soundSpeed,
+                                          double rhoLocal,
+                                          double maxViscosityCoeff) {
   const double denominator = soundSpeed / hmin + alphamu * maxViscosityCoeff /
                                                      (rhoLocal * hmin * hmin);
   const double tauLocal = alpha / denominator;
@@ -248,7 +300,7 @@ inline void LagrangianFemMethod::calcTau(double hmin, double soundSpeed,
   }
 }
 
-inline std::size_t LagrangianFemMethod::getKinematicIndexFromCell(
+inline std::size_t PlasticElasticMethod::getKinematicIndexFromCell(
     const std::size_t cell, const std::size_t node,
     const std::size_t direction) const {
   assert(cell < kNumberOfCells);
@@ -266,7 +318,7 @@ inline std::size_t LagrangianFemMethod::getKinematicIndexFromCell(
          direction;
 }
 
-inline std::size_t LagrangianFemMethod::getThermodynamicIndexFromCell(
+inline std::size_t PlasticElasticMethod::getThermodynamicIndexFromCell(
     const std::size_t cell, const std::size_t node,
     const std::size_t material) const {
   assert(cell < kNumberOfCells);
@@ -278,7 +330,7 @@ inline std::size_t LagrangianFemMethod::getThermodynamicIndexFromCell(
          material;
 }
 
-inline std::size_t LagrangianFemMethod::getQuadIndexFromCell(
+inline std::size_t PlasticElasticMethod::getQuadIndexFromCell(
     const std::size_t cell, const std::size_t quad,
     const std::size_t material) const {
   assert(cell < kNumberOfCells);
@@ -289,18 +341,18 @@ inline std::size_t LagrangianFemMethod::getQuadIndexFromCell(
          material;
 }
 
-inline std::size_t LagrangianFemMethod::getKinematicIndexLocal(
+inline std::size_t PlasticElasticMethod::getKinematicIndexLocal(
     const std::size_t node, const std::size_t direction) const {
   assert(node < kNumberOfKinematicPointsPerCell);
   assert(direction < kSolverDimention);
   return kSolverDimention * node + direction;
 }
 
-inline std::size_t LagrangianFemMethod::getThermoIndexLocal(
+inline std::size_t PlasticElasticMethod::getThermoIndexLocal(
     const std::size_t node, const std::size_t material) const {
   assert(node < kNumberOfThermodynamicPointsPerCell);
   assert(material < kNumberOfMaterials);
   return kNumberOfMaterials * node + material;
 }
 
-#endif  // HYDRO_SOLVER_METHODS_LAGRANGIAN_FEM_METHOD_HPP_
+#endif  // HYDRO_SOLVER_METHODS_PLASTIC_ELASTIC_FEM_METHOD_HPP_

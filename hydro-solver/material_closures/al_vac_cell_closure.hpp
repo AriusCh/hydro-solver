@@ -1,21 +1,21 @@
-#ifndef HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CLOSURE_HPP_
-#define HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CLOSURE_HPP_
+#ifndef HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CELL_CLOSURE_HPP_
+#define HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CELL_CLOSURE_HPP_
 
 #include <cmath>
 
 #include "../material_closure.hpp"
 
-class AlVacClosure : public MaterialClosure {
+class AlVacCellClosure : public MaterialClosure {
  public:
-  AlVacClosure() : MaterialClosure(1) {}
+  AlVacCellClosure() : MaterialClosure(1) {}
 
-  AlVacClosure(const AlVacClosure &) = delete;
-  AlVacClosure(AlVacClosure &&) = delete;
+  AlVacCellClosure(const AlVacCellClosure &) = delete;
+  AlVacCellClosure(AlVacCellClosure &&) = delete;
 
-  AlVacClosure &operator=(const AlVacClosure &) = delete;
-  AlVacClosure &operator=(AlVacClosure &&) = delete;
+  AlVacCellClosure &operator=(const AlVacCellClosure &) = delete;
+  AlVacCellClosure &operator=(AlVacCellClosure &&) = delete;
 
-  virtual ~AlVacClosure() = default;
+  virtual ~AlVacCellClosure() = default;
 
  public:
   virtual std::vector<double> calcVolFracRates(
@@ -26,17 +26,19 @@ class AlVacClosure : public MaterialClosure {
  private:
   enum class SeparationState { eWhole, eSeparated };
   std::vector<SeparationState> state = std::vector<SeparationState>(
-      180000, AlVacClosure::SeparationState::eWhole);
+      180000, AlVacCellClosure::SeparationState::eWhole);
 };
 
-inline std::vector<double> AlVacClosure::calcVolFracRates(
+inline std::vector<double> AlVacCellClosure::calcVolFracRates(
     const std::vector<double> &volFracs, const std::vector<double> &rhos,
     const std::vector<double> &ps, const std::vector<double> &soundSpeeds,
-    [[maybe_unused]] const std::size_t cell, const double h, const double dt) {
+    const std::size_t cell, const double h, const double dt) {
   assert(volFracs.size() == kNumberOfMaterials);
   assert(rhos.size() == kNumberOfMaterials);
   assert(ps.size() == kNumberOfMaterials);
   assert(soundSpeeds.size() == kNumberOfMaterials);
+
+  assert(cell < state.size());
 
   constexpr double pSeparation = -1e9;
   constexpr double pStar = 0.0;
@@ -49,10 +51,11 @@ inline std::vector<double> AlVacClosure::calcVolFracRates(
   const double pAl = ps[0];
   const double volFracAl = volFracs[0];
 
-  if (std::abs(volFracAl - 1.0) <= DOUBLE_DELTA && pAl > pSeparation) {
+  if (state[cell] == SeparationState::eWhole &&
+      std::abs(volFracAl - 1.0) <= DOUBLE_DELTA && pAl > pSeparation) {
     return output;
   }
-  // state[cell] = SeparationState::eSeparated;
+  state[cell] = SeparationState::eSeparated;
 
   const double rhoAl = rhos[0];
   const double soundSpeedAl = soundSpeeds[0];
@@ -78,4 +81,4 @@ inline std::vector<double> AlVacClosure::calcVolFracRates(
   return output;
 }
 
-#endif  // HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CLOSURE_HPP_
+#endif  // HYDRO_SOLVER_MATERIAL_CLOSURES_AL_VAC_CELL_CLOSURE_HPP_

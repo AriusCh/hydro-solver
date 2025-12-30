@@ -1,20 +1,23 @@
-#include "lagrangian_fem_method.hpp"
+#include "plastic_elastic_fem_method.hpp"
+
+#include <Eigen/src/Core/Matrix.h>
 
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 #include "../utils/basis.hpp"
 #include "../utils/legendre_nodes.hpp"
 #include "../utils/legendre_weights.hpp"
 #include "../utils/lobatto_nodes.hpp"
 
-LagrangianFemMethod::LagrangianFemMethod(const Problem &problem_,
-                                         const std::size_t xCells_,
-                                         const std::size_t yCells_,
-                                         const std::size_t order_)
+PlasticElasticMethod::PlasticElasticMethod(const Problem &problem_,
+                                           const std::size_t xCells_,
+                                           const std::size_t yCells_,
+                                           const std::size_t order_)
     : Method(std::to_string(order_) + "-" + std::to_string(xCells_) + "x" +
                  std::to_string(yCells_),
              problem_),
@@ -105,10 +108,13 @@ LagrangianFemMethod::LagrangianFemMethod(const Problem &problem_,
   initForceMatrix();
   initVolFracRateVector();
   initEnergyExchangeRateVector();
+  initDeviatorStressTensorVectors();
+  initDeviatorStressRateVectors();
+  initEquivalentPlasticStrainVector();
   initKinematicSolver();
 }
 
-void LagrangianFemMethod::dumpSolverInfo() const {
+void PlasticElasticMethod::dumpSolverInfo() const {
   {
     const std::string solverInfoFilename = "solver_info.txt";
     std::ofstream ofs(outputDirPath / solverInfoFilename);
@@ -135,7 +141,7 @@ void LagrangianFemMethod::dumpSolverInfo() const {
   }
 }
 
-void LagrangianFemMethod::dumpData() const {
+void PlasticElasticMethod::dumpData() const {
   const std::size_t tmp = std::round(1000.0 * t * problem.tMul);
   const std::size_t integralPart = tmp / 1000;
   const std::size_t decimalPart = tmp % 1000;
@@ -306,7 +312,12 @@ void LagrangianFemMethod::dumpData() const {
 
           auto eos = problem.eoses[material];
 
-          const double pOut = eos->getp(rhoOut, eOut);
+          double pOut = eos->getp(rhoOut, eOut);
+          // const double pMin =
+          //     (-1.0 / 3.0) * problem.plastic_params->equivalent_stress;
+          // if (pOut < pMin) {
+          //   pOut = pMin;
+          // }
 
           ofsVolFrac.write(reinterpret_cast<const char *>(&volFracOut),
                            sizeof(double));
@@ -317,11 +328,15 @@ void LagrangianFemMethod::dumpData() const {
       }
     }
   }
+
+  dumpPlasticityThreshold(dataOutputDir);
+  dumpDeviatorStressTensor(dataOutputDir);
+  dumpEquivalentPlasticStrain(dataOutputDir);
 }
 
-void LagrangianFemMethod::calcStep() { RK2Step(); }
+void PlasticElasticMethod::calcStep() { RK2Step(); }
 
-double LagrangianFemMethod::initHminCoeff(
+double PlasticElasticMethod::initHminCoeff(
     const std::size_t numberOfKinematicPointsPerCellPerDimention) {
   assert(numberOfKinematicPointsPerCellPerDimention >= 2);
 
@@ -334,7 +349,7 @@ double LagrangianFemMethod::initHminCoeff(
   return nodes[1];
 }
 
-std::vector<double> LagrangianFemMethod::initQuadratureWeights(
+std::vector<double> PlasticElasticMethod::initQuadratureWeights(
     const std::size_t numberOfQuadPointsPerCellPerDimention,
     const std::size_t solverDimention) {
   assert(solverDimention == 2);
@@ -357,7 +372,7 @@ std::vector<double> LagrangianFemMethod::initQuadratureWeights(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisQuadValues(
+Eigen::MatrixXd PlasticElasticMethod::initKinematicBasisQuadValues(
     const std::size_t numberOfKinematicPointsPerCellPerDimention,
     const std::size_t numberOfQuadraturePointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -404,7 +419,7 @@ Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisQuadValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdxQuadValues(
+Eigen::MatrixXd PlasticElasticMethod::initKinematicBasisdxQuadValues(
     const std::size_t numberOfKinematicPointsPerCellPerDimention,
     const std::size_t numberOfQuadraturePointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -452,7 +467,7 @@ Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdxQuadValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdyQuadValues(
+Eigen::MatrixXd PlasticElasticMethod::initKinematicBasisdyQuadValues(
     const std::size_t numberOfKinematicPointsPerCellPerDimention,
     const std::size_t numberOfQuadraturePointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -500,7 +515,7 @@ Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdyQuadValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initThermodynamicBasisQuadValues(
+Eigen::MatrixXd PlasticElasticMethod::initThermodynamicBasisQuadValues(
     const std::size_t numberOfThermodynamicPointsPerCellPerDimention,
     const std::size_t numberOfQuadraturePointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -546,7 +561,7 @@ Eigen::MatrixXd LagrangianFemMethod::initThermodynamicBasisQuadValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisOutputValues(
+Eigen::MatrixXd PlasticElasticMethod::initKinematicBasisOutputValues(
     const std::size_t numberOfKinematicPointsPerCellPerDimention,
     const std::size_t numberOfOutputPointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -592,7 +607,7 @@ Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisOutputValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdxOutputValues(
+Eigen::MatrixXd PlasticElasticMethod::initKinematicBasisdxOutputValues(
     const std::size_t numberOfKinematicPointsPerCellPerDimention,
     const std::size_t numberOfOutputPointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -638,7 +653,7 @@ Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdxOutputValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdyOutputValues(
+Eigen::MatrixXd PlasticElasticMethod::initKinematicBasisdyOutputValues(
     const std::size_t numberOfKinematicPointsPerCellPerDimention,
     const std::size_t numberOfOutputPointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -684,7 +699,7 @@ Eigen::MatrixXd LagrangianFemMethod::initKinematicBasisdyOutputValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initThermodynamicBasisOutputValues(
+Eigen::MatrixXd PlasticElasticMethod::initThermodynamicBasisOutputValues(
     const std::size_t numberOfThermodynamicPointsPerCellPerDimention,
     const std::size_t numberOfOutputPointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -731,7 +746,7 @@ Eigen::MatrixXd LagrangianFemMethod::initThermodynamicBasisOutputValues(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::initQuadBasisOutputValues(
+Eigen::MatrixXd PlasticElasticMethod::initQuadBasisOutputValues(
     const std::size_t numberOfQuadraturePointsPerCellPerDimention,
     const std::size_t numberOfOutputPointsPerCellPerDimention,
     const std::size_t solverDimention) {
@@ -777,7 +792,7 @@ Eigen::MatrixXd LagrangianFemMethod::initQuadBasisOutputValues(
   return output;
 }
 
-void LagrangianFemMethod::initKinematicVectors() {
+void PlasticElasticMethod::initKinematicVectors() {
   assert(kNumberOfKinematicPointsPerCellPerDimention >= 1);
 
   const double celldx = (problem.xmax - problem.xmin) / xCells;
@@ -825,12 +840,12 @@ void LagrangianFemMethod::initKinematicVectors() {
   xInitial = x;
 }
 
-void LagrangianFemMethod::initQuadVectors() {
+void PlasticElasticMethod::initQuadVectors() {
   initVolFracVector();
   initRhoVector();
 }
 
-void LagrangianFemMethod::initVolFracVector() {
+void PlasticElasticMethod::initVolFracVector() {
   assert(kNumberOfQuadraturePointsPerCellPerDimention >= 1);
 
   const double celldx = (problem.xmax - problem.xmin) / xCells;
@@ -896,7 +911,7 @@ void LagrangianFemMethod::initVolFracVector() {
   volFracInitial = volFrac;
 }
 
-void LagrangianFemMethod::initRhoVector() {
+void PlasticElasticMethod::initRhoVector() {
   assert(kNumberOfQuadraturePointsPerCellPerDimention >= 1);
 
   const double celldx = (problem.xmax - problem.xmin) / xCells;
@@ -950,7 +965,7 @@ void LagrangianFemMethod::initRhoVector() {
   }
 }
 
-void LagrangianFemMethod::initThermodynamicVector() {
+void PlasticElasticMethod::initThermodynamicVector() {
   assert(kNumberOfThermodynamicPointsPerCellPerDimention >= 1);
 
   const double celldx = (problem.xmax - problem.xmin) / xCells;
@@ -1011,14 +1026,14 @@ void LagrangianFemMethod::initThermodynamicVector() {
   }
 }
 
-void LagrangianFemMethod::initKinematicMassMatrix() {
+void PlasticElasticMethod::initKinematicMassMatrix() {
   kinematicMassMatrix.resize(kSolverDimention * kNumberOfKinematicPointsTotal,
                              kSolverDimention * kNumberOfKinematicPointsTotal);
 
   calcKinematicMassMatrix();
 }
 
-void LagrangianFemMethod::initThermoMassMatrixInv() {
+void PlasticElasticMethod::initThermoMassMatrixInv() {
   thermoMassMatrixInv.resize(
       kNumberOfMaterials * kNumberOfThermodynamicPointsTotal,
       kNumberOfMaterials * kNumberOfThermodynamicPointsTotal);
@@ -1032,7 +1047,7 @@ void LagrangianFemMethod::initThermoMassMatrixInv() {
   thermoMassMatrixInv.makeCompressed();
 }
 
-void LagrangianFemMethod::initForceMatrix() {
+void PlasticElasticMethod::initForceMatrix() {
   forceMatrix.resize(kSolverDimention * kNumberOfKinematicPointsTotal,
                      kNumberOfMaterials * kNumberOfThermodynamicPointsTotal);
   forceMatrix.reserve(Eigen::VectorXi::Constant(
@@ -1040,25 +1055,66 @@ void LagrangianFemMethod::initForceMatrix() {
       kSolverDimention * kNumberOfKinematicPointsPerCell));
 }
 
-void LagrangianFemMethod::initVolFracRateVector() {
+void PlasticElasticMethod::initVolFracRateVector() {
   volFracRate.resize(kNumberOfMaterials * kNumberOfQuadraturePointsTotal);
   volFracRate.setZero();
 }
 
-void LagrangianFemMethod::initEnergyExchangeRateVector() {
+void PlasticElasticMethod::initEnergyExchangeRateVector() {
   energyExchangeRate.resize(kNumberOfMaterials *
                             kNumberOfThermodynamicPointsTotal);
   volFracRate.setZero();
 }
 
-void LagrangianFemMethod::initKinematicSolver() {
+void PlasticElasticMethod::initDeviatorStressTensorVectors() {
+  const std::size_t N = kNumberOfMaterials * kNumberOfThermodynamicPointsTotal;
+
+  stress_deviator_00.resize(N);
+  stress_deviator_01.resize(N);
+  stress_deviator_10.resize(N);
+  stress_deviator_11.resize(N);
+
+  stress_deviator_00.setZero();
+  stress_deviator_01.setZero();
+  stress_deviator_10.setZero();
+  stress_deviator_11.setZero();
+
+  // const std::size_t i_max = N / 2;
+  // for (std::size_t i = 0; i < i_max; i++) {
+  //   stress_deviator_00(i) = -0.2e9;
+  //   stress_deviator_11(i) = 0.1e9;
+  // }
+}
+
+void PlasticElasticMethod::initDeviatorStressRateVectors() {
+  const std::size_t N = kNumberOfMaterials * kNumberOfThermodynamicPointsTotal;
+
+  deviator_rate_00.resize(N);
+  deviator_rate_01.resize(N);
+  deviator_rate_10.resize(N);
+  deviator_rate_11.resize(N);
+
+  deviator_rate_00.setZero();
+  deviator_rate_01.setZero();
+  deviator_rate_10.setZero();
+  deviator_rate_11.setZero();
+}
+
+void PlasticElasticMethod::initEquivalentPlasticStrainVector() {
+  const std::size_t N = kNumberOfMaterials * kNumberOfThermodynamicPointsTotal;
+
+  equivalent_plastic_strain.resize(N);
+  equivalent_plastic_strain.setZero();
+}
+
+void PlasticElasticMethod::initKinematicSolver() {
   kinematicMassMatrixSolver.compute(kinematicMassMatrix);
   if (kinematicMassMatrixSolver.info() != Eigen::Success) {
     throw std::runtime_error("Failed to init kinematic solver");
   }
 }
 
-void LagrangianFemMethod::calcKinematicMassMatrix() {
+void PlasticElasticMethod::calcKinematicMassMatrix() {
   const std::size_t kinematicOrder =
       kNumberOfKinematicPointsPerCellPerDimention - 1;
 
@@ -1099,7 +1155,7 @@ void LagrangianFemMethod::calcKinematicMassMatrix() {
   kinematicMassMatrix.makeCompressed();
 }
 
-void LagrangianFemMethod::calcThermoMassMatrixInv() {
+void PlasticElasticMethod::calcThermoMassMatrixInv() {
 #pragma omp parallel for
   for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
     for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
@@ -1135,21 +1191,30 @@ void LagrangianFemMethod::calcThermoMassMatrixInv() {
   }
 }
 
-void LagrangianFemMethod::calcForceMatrix(const Eigen::VectorXd &xCalc,
-                                          const Eigen::VectorXd &uCalc,
-                                          const Eigen::VectorXd &volFracCalc,
-                                          const Eigen::VectorXd &eCalc) {
+void PlasticElasticMethod::calcForceMatrix(
+    const Eigen::VectorXd &xCalc, const Eigen::VectorXd &uCalc,
+    const Eigen::VectorXd &volFracCalc, const Eigen::VectorXd &eCalc,
+    const Eigen::VectorXd &deviatorStressTensor_00,
+    const Eigen::VectorXd &deviatorStressTensor_01,
+    const Eigen::VectorXd &deviatorStressTensor_10,
+    const Eigen::VectorXd &deviatorStressTensor_11) {
   assert(xCalc.size() == x.size());
   assert(uCalc.size() == u.size());
   assert(volFracCalc.size() == volFrac.size());
   assert(eCalc.size() == e.size());
 
   energyExchangeRate.setZero();
+  deviator_rate_00.setZero();
+  deviator_rate_01.setZero();
+  deviator_rate_10.setZero();
+  deviator_rate_11.setZero();
 
 #pragma omp parallel for
   for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
     const Eigen::MatrixXd cellForce =
-        quadForceMatrix(cell, xCalc, uCalc, volFracCalc, eCalc);
+        quadForceMatrix(cell, xCalc, uCalc, volFracCalc, eCalc,
+                        deviatorStressTensor_00, deviatorStressTensor_01,
+                        deviatorStressTensor_10, deviatorStressTensor_11);
     for (std::size_t nodeKinematic = 0;
          nodeKinematic < kNumberOfKinematicPointsPerCell; nodeKinematic++) {
       for (std::size_t nodeThermo = 0;
@@ -1181,7 +1246,66 @@ void LagrangianFemMethod::calcForceMatrix(const Eigen::VectorXd &xCalc,
   forceMatrix.makeCompressed();
 }
 
-Eigen::MatrixXd LagrangianFemMethod::quadKinematicCellMass(
+void PlasticElasticMethod::radialReturn(
+    Eigen::VectorXd &deviatorStressTensor_00_calc,
+    Eigen::VectorXd &deviatorStressTensor_01_calc,
+    Eigen::VectorXd &deviatorStressTensor_10_calc,
+    Eigen::VectorXd &deviatorStressTensor_11_calc,
+    Eigen::VectorXd &equivalentPlasticStrain_calc) {
+#pragma omp parallel for
+  for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+    for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
+      for (std::size_t thermo_node = 0;
+           thermo_node < kNumberOfThermodynamicPointsPerCell; thermo_node++) {
+        const std::size_t thermo_index =
+            getThermodynamicIndexFromCell(cell, thermo_node, material);
+
+        const double s00_local = deviatorStressTensor_00_calc(thermo_index);
+        const double s01_local = deviatorStressTensor_01_calc(thermo_index);
+        const double s10_local = deviatorStressTensor_10_calc(thermo_index);
+        const double s11_local = deviatorStressTensor_11_calc(thermo_index);
+
+        const double s22_local = -s00_local - s11_local;
+        const double stress_measure =
+            std::sqrt(1.5 * (s00_local * s00_local + s01_local * s01_local +
+                             s10_local * s10_local + s11_local * s11_local +
+                             s22_local * s22_local));
+
+        const double equivalent_stress =
+            problem.plastic_params->equivalent_stress;
+
+        if (stress_measure <= equivalent_stress) {
+          continue;
+        }
+        const double shear_modulus = problem.plastic_params->shear_modulus;
+
+        const double equiv_plastic_strain_local =
+            equivalentPlasticStrain_calc(thermo_index);
+
+        const double strain_coeff = equivalent_stress / stress_measure;
+
+        const double s00_local_new = s00_local * strain_coeff;
+        const double s01_local_new = s01_local * strain_coeff;
+        const double s10_local_new = s10_local * strain_coeff;
+        const double s11_local_new = s11_local * strain_coeff;
+
+        const double equiv_plastic_strain_local_new =
+            equiv_plastic_strain_local +
+            (stress_measure - equivalent_stress) / (3.0 * shear_modulus);
+
+        deviatorStressTensor_00_calc(thermo_index) = s00_local_new;
+        deviatorStressTensor_01_calc(thermo_index) = s01_local_new;
+        deviatorStressTensor_10_calc(thermo_index) = s10_local_new;
+        deviatorStressTensor_11_calc(thermo_index) = s11_local_new;
+
+        equivalentPlasticStrain_calc(thermo_index) =
+            equiv_plastic_strain_local_new;
+      }
+    }
+  }
+}
+
+Eigen::MatrixXd PlasticElasticMethod::quadKinematicCellMass(
     const std::size_t cell) {
   Eigen::MatrixXd output(kNumberOfKinematicPointsPerCell,
                          kNumberOfKinematicPointsPerCell);
@@ -1220,7 +1344,7 @@ Eigen::MatrixXd LagrangianFemMethod::quadKinematicCellMass(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::quadThermoCellMass(
+Eigen::MatrixXd PlasticElasticMethod::quadThermoCellMass(
     const std::size_t cell, const std::size_t material) {
   Eigen::MatrixXd output(kNumberOfThermodynamicPointsPerCell,
                          kNumberOfThermodynamicPointsPerCell);
@@ -1252,10 +1376,14 @@ Eigen::MatrixXd LagrangianFemMethod::quadThermoCellMass(
   return output;
 }
 
-Eigen::MatrixXd LagrangianFemMethod::quadForceMatrix(
+Eigen::MatrixXd PlasticElasticMethod::quadForceMatrix(
     const std::size_t cell, const Eigen::VectorXd &xCalc,
     const Eigen::VectorXd &uCalc, const Eigen::VectorXd &volFracCalc,
-    const Eigen::VectorXd &eCalc) {
+    const Eigen::VectorXd &eCalc,
+    const Eigen::VectorXd &deviatorStressTensor_00,
+    const Eigen::VectorXd &deviatorStressTensor_01,
+    const Eigen::VectorXd &deviatorStressTensor_10,
+    const Eigen::VectorXd &deviatorStressTensor_11) {
   Eigen::MatrixXd output(
       kSolverDimention * kNumberOfKinematicPointsPerCell,
       kNumberOfMaterials * kNumberOfThermodynamicPointsPerCell);
@@ -1290,10 +1418,11 @@ Eigen::MatrixXd LagrangianFemMethod::quadForceMatrix(
       double pLocal = 0.0;
       double maxViscosityCoeff = 0.0;
 
-      Eigen::Matrix2d stressTensor =
-          calcStressTensor(cell, quad, material, soundSpeed, rhoLocal, pLocal,
-                           maxViscosityCoeff, velocityScalarGrad, jacobian,
-                           jacobianDet, jacobianInv, uCalc, volFracCalc, eCalc);
+      Eigen::Matrix2d stressTensor = calcStressTensor(
+          cell, quad, material, soundSpeed, rhoLocal, pLocal, maxViscosityCoeff,
+          velocityScalarGrad, jacobian, jacobianDet, jacobianInv, uCalc,
+          volFracCalc, eCalc, deviatorStressTensor_00, deviatorStressTensor_01,
+          deviatorStressTensor_10, deviatorStressTensor_11);
 
       for (std::size_t nodeThermo = 0;
            nodeThermo < kNumberOfThermodynamicPointsPerCell; nodeThermo++) {
@@ -1370,13 +1499,17 @@ Eigen::MatrixXd LagrangianFemMethod::quadForceMatrix(
   return output;
 }
 
-Eigen::Matrix2d LagrangianFemMethod::calcStressTensor(
+Eigen::Matrix2d PlasticElasticMethod::calcStressTensor(
     const std::size_t cell, const std::size_t quad, const std::size_t material,
     double &soundSpeed, double &rhoLocal, double &pLocal,
     double &maxViscosityCoeff, double &velocityScalarGrad,
     const Eigen::Matrix2d &jacobian, const double jacobianDet,
     const Eigen::Matrix2d &jacobianInv, const Eigen::VectorXd &uCalc,
-    const Eigen::VectorXd &volFracCalc, const Eigen::VectorXd &eCalc) {
+    const Eigen::VectorXd &volFracCalc, const Eigen::VectorXd &eCalc,
+    const Eigen::VectorXd &deviatorStressTensor_00_calc,
+    const Eigen::VectorXd &deviatorStressTensor_01_calc,
+    const Eigen::VectorXd &deviatorStressTensor_10_calc,
+    const Eigen::VectorXd &deviatorStressTensor_11_calc) {
   Eigen::Matrix2d output;
   output.setZero();
 
@@ -1405,17 +1538,26 @@ Eigen::Matrix2d LagrangianFemMethod::calcStressTensor(
 
   const auto eos = problem.eoses[material];
   pLocal = eos->getp(rhoLocal, eLocal);
+
+  // const double pMin = (-1.0 / 3.0) *
+  // problem.plastic_params->equivalent_stress; if (pLocal < pMin) {
+  //   pLocal = pMin;
+  // }
   soundSpeed = eos->getc(rhoLocal, pLocal);
 
   output = -pLocal * Eigen::Matrix2d::Identity();
   output += calcArtificialViscosity(
       cell, quad, soundSpeed, rhoLocal, maxViscosityCoeff, velocityScalarGrad,
       jacobian, jacobianInv, jacobianInitial, uCalc);
+  output += calcDeviatorTensor(
+      cell, quad, material, rhoLocal, jacobianDet, jacobianInv, uCalc,
+      deviatorStressTensor_00_calc, deviatorStressTensor_01_calc,
+      deviatorStressTensor_10_calc, deviatorStressTensor_11_calc);
 
   return output;
 }
 
-Eigen::Matrix2d LagrangianFemMethod::calcArtificialViscosity(
+Eigen::Matrix2d PlasticElasticMethod::calcArtificialViscosity(
     const std::size_t cell, const std::size_t quad, const double soundSpeed,
     const double rhoLocal, double &maxViscosityCoeff,
     double &velocityScalarGrad, const Eigen::Matrix2d &jacobian,
@@ -1474,7 +1616,7 @@ Eigen::Matrix2d LagrangianFemMethod::calcArtificialViscosity(
   return output;
 }
 
-double LagrangianFemMethod::calcViscosityCoeff(
+double PlasticElasticMethod::calcViscosityCoeff(
     const double soundSpeed, const double rhoLocal, const double eigenvalue,
     const Eigen::Vector2d &eigenvector, const Eigen::Matrix2d &velocityGrad,
     const Eigen::Matrix2d &jacobian, const Eigen::Matrix2d &jacobianInitial) {
@@ -1499,13 +1641,108 @@ double LagrangianFemMethod::calcViscosityCoeff(
   return output;
 }
 
-void LagrangianFemMethod::resolveBoundaryKinematicMassMatrix() {
+Eigen::Matrix2d PlasticElasticMethod::calcDeviatorTensor(
+    const std::size_t cell, const std::size_t quad, const std::size_t material,
+    const double rhoLocal, const double jacobianDet,
+    const Eigen::Matrix2d &jacobianInv, const Eigen::VectorXd &uCalc,
+    const Eigen::VectorXd &deviatorStressTensor_00_calc,
+    const Eigen::VectorXd &deviatorStressTensor_01_calc,
+    const Eigen::VectorXd &deviatorStressTensor_10_calc,
+    const Eigen::VectorXd &deviatorStressTensor_11_calc) {
+  Eigen::Matrix2d deviator_stress_tensor;
+  deviator_stress_tensor.setZero();
+
+  for (std::size_t node = 0; node < kNumberOfThermodynamicPointsPerCell;
+       node++) {
+    const std::size_t thermo_index =
+        getThermodynamicIndexFromCell(cell, node, material);
+
+    const double s00_local = deviatorStressTensor_00_calc(thermo_index);
+    const double s01_local = deviatorStressTensor_01_calc(thermo_index);
+    const double s10_local = deviatorStressTensor_10_calc(thermo_index);
+    const double s11_local = deviatorStressTensor_11_calc(thermo_index);
+
+    const double node_basis = thermodynamicBasisQuadValues(node, quad);
+
+    deviator_stress_tensor(0, 0) += s00_local * node_basis;
+    deviator_stress_tensor(0, 1) += s01_local * node_basis;
+    deviator_stress_tensor(1, 0) += s10_local * node_basis;
+    deviator_stress_tensor(1, 1) += s11_local * node_basis;
+  }
+
+  Eigen::Matrix2d velocityGrad;
+  velocityGrad.setZero();
+
+  for (std::size_t kinematicNode = 0;
+       kinematicNode < kNumberOfKinematicPointsPerCell; kinematicNode++) {
+    const double kinematicBasisdx =
+        kinematicBasisdxQuadValues(kinematicNode, quad);
+    const double kinematicBasisdy =
+        kinematicBasisdyQuadValues(kinematicNode, quad);
+
+    for (std::size_t direction = 0; direction < kSolverDimention; direction++) {
+      const std::size_t kinematicIndex =
+          getKinematicIndexFromCell(cell, kinematicNode, direction);
+      const double uNode = uCalc(kinematicIndex);
+      velocityGrad(0, direction) += uNode * kinematicBasisdx;
+      velocityGrad(1, direction) += uNode * kinematicBasisdy;
+    }
+  }
+  velocityGrad = jacobianInv * velocityGrad;
+  // velocityGrad.transposeInPlace();
+  Eigen::Matrix2d symVelocityGrad = (velocityGrad + velocityGrad.transpose());
+  Eigen::Matrix2d spinTensor = (velocityGrad - velocityGrad.transpose());
+  const double velocityScalarGrad = velocityGrad(0, 0) + velocityGrad(1, 1);
+
+  const double shear_modulus = problem.plastic_params->shear_modulus;
+
+  const Eigen::Matrix2d term1 =
+      shear_modulus * (symVelocityGrad - (2.0 / 3.0) * velocityScalarGrad *
+                                             Eigen::Matrix2d::Identity());
+  const Eigen::Matrix2d term2 = -0.5 * (deviator_stress_tensor * spinTensor -
+                                        spinTensor * deviator_stress_tensor);
+
+  const Eigen::Matrix2d g_local = term1 + term2;
+
+  for (std::size_t thermo_node = 0;
+       thermo_node < kNumberOfThermodynamicPointsPerCell; thermo_node++) {
+    const double quad_weight = quadWeights[quad];
+
+    const double g00_local = g_local(0, 0);
+    const double g01_local = g_local(0, 1);
+    const double g10_local = g_local(1, 0);
+    const double g11_local = g_local(1, 1);
+
+    const double thermo_basis_value =
+        thermodynamicBasisQuadValues(thermo_node, quad);
+
+    const double common =
+        quad_weight * rhoLocal * thermo_basis_value * jacobianDet;
+
+    const double g00_value = common * g00_local;
+    const double g01_value = common * g01_local;
+    const double g10_value = common * g10_local;
+    const double g11_value = common * g11_local;
+
+    const std::size_t thermo_index =
+        getThermodynamicIndexFromCell(cell, thermo_node, material);
+
+    deviator_rate_00(thermo_index) += g00_value;
+    deviator_rate_01(thermo_index) += g01_value;
+    deviator_rate_10(thermo_index) += g10_value;
+    deviator_rate_11(thermo_index) += g11_value;
+  }
+
+  return deviator_stress_tensor;
+}
+
+void PlasticElasticMethod::resolveBoundaryKinematicMassMatrix() {
   resolveLeftBoundaryKinematicMassMatrix();
   resolveTopBoundaryKinematicMassMatrix();
   resolveRightBoundaryKinematicMassMatrix();
   resolveBottomBoundaryKinematicMassMatrix();
 }
-void LagrangianFemMethod::resolveLeftBoundaryKinematicMassMatrix() {
+void PlasticElasticMethod::resolveLeftBoundaryKinematicMassMatrix() {
   switch (problem.leftBoundaryType) {
     case BoundaryType::eFree:
       break;
@@ -1566,7 +1803,7 @@ void LagrangianFemMethod::resolveLeftBoundaryKinematicMassMatrix() {
       break;
   }
 }
-void LagrangianFemMethod::resolveTopBoundaryKinematicMassMatrix() {
+void PlasticElasticMethod::resolveTopBoundaryKinematicMassMatrix() {
   switch (problem.topBoundaryType) {
     case BoundaryType::eFree:
       break;
@@ -1636,7 +1873,7 @@ void LagrangianFemMethod::resolveTopBoundaryKinematicMassMatrix() {
       break;
   }
 }
-void LagrangianFemMethod::resolveRightBoundaryKinematicMassMatrix() {
+void PlasticElasticMethod::resolveRightBoundaryKinematicMassMatrix() {
   switch (problem.rightBoundaryType) {
     case BoundaryType::eFree:
       break;
@@ -1706,7 +1943,7 @@ void LagrangianFemMethod::resolveRightBoundaryKinematicMassMatrix() {
       break;
   }
 }
-void LagrangianFemMethod::resolveBottomBoundaryKinematicMassMatrix() {
+void PlasticElasticMethod::resolveBottomBoundaryKinematicMassMatrix() {
   switch (problem.bottomBoundaryType) {
     case BoundaryType::eFree:
       break;
@@ -1771,13 +2008,13 @@ void LagrangianFemMethod::resolveBottomBoundaryKinematicMassMatrix() {
   }
 }
 
-void LagrangianFemMethod::resolveBoundaryForceVector(Eigen::VectorXd &FuCalc) {
+void PlasticElasticMethod::resolveBoundaryForceVector(Eigen::VectorXd &FuCalc) {
   resolveLeftBoundaryForceVector(FuCalc);
   resolveTopBoundaryForceVector(FuCalc);
   resolveRightBoundaryForceVector(FuCalc);
   resolveBottomBoundaryForceVector(FuCalc);
 }
-void LagrangianFemMethod::resolveLeftBoundaryForceVector(
+void PlasticElasticMethod::resolveLeftBoundaryForceVector(
     Eigen::VectorXd &FuCalc) {
   switch (problem.leftBoundaryType) {
     case BoundaryType::eFree:
@@ -1814,14 +2051,14 @@ void LagrangianFemMethod::resolveLeftBoundaryForceVector(
                direction++) {
             const std::size_t kinematicIndex =
                 getKinematicIndexFromCell(cell, node, direction);
-            // FuCalc(kinematicIndex) = 0.0;
+            FuCalc(kinematicIndex) = 0.0;
           }
         }
       }
       break;
   }
 }
-void LagrangianFemMethod::resolveTopBoundaryForceVector(
+void PlasticElasticMethod::resolveTopBoundaryForceVector(
     Eigen::VectorXd &FuCalc) {
   assert(yCells >= 1);
   switch (problem.topBoundaryType) {
@@ -1865,14 +2102,14 @@ void LagrangianFemMethod::resolveTopBoundaryForceVector(
                direction++) {
             const std::size_t kinematicIndex =
                 getKinematicIndexFromCell(cell, node, direction);
-            // FuCalc(kinematicIndex) = 0.0;
+            FuCalc(kinematicIndex) = 0.0;
           }
         }
       }
       break;
   }
 }
-void LagrangianFemMethod::resolveRightBoundaryForceVector(
+void PlasticElasticMethod::resolveRightBoundaryForceVector(
     Eigen::VectorXd &FuCalc) {
   assert(xCells >= 1);
   assert(kNumberOfKinematicPointsPerCellPerDimention >= 1);
@@ -1920,14 +2157,14 @@ void LagrangianFemMethod::resolveRightBoundaryForceVector(
                direction++) {
             const std::size_t kinematicIndex =
                 getKinematicIndexFromCell(cell, node, direction);
-            // FuCalc(kinematicIndex) = 0.0;
+            FuCalc(kinematicIndex) = 0.0;
           }
         }
       }
       break;
   }
 }
-void LagrangianFemMethod::resolveBottomBoundaryForceVector(
+void PlasticElasticMethod::resolveBottomBoundaryForceVector(
     Eigen::VectorXd &FuCalc) {
   switch (problem.bottomBoundaryType) {
     case BoundaryType::eFree:
@@ -1964,7 +2201,7 @@ void LagrangianFemMethod::resolveBottomBoundaryForceVector(
                direction++) {
             const std::size_t kinematicIndex =
                 getKinematicIndexFromCell(cell, node, direction);
-            // FuCalc(kinematicIndex) = 0.0;
+            FuCalc(kinematicIndex) = 0.0;
           }
         }
       }
@@ -1972,13 +2209,34 @@ void LagrangianFemMethod::resolveBottomBoundaryForceVector(
   }
 }
 
-void LagrangianFemMethod::RK2Step() {
+void PlasticElasticMethod::RK2Step() {
   while (true) {
     tau = std::numeric_limits<double>::max();
-    calcForceMatrix(x, u, volFrac, e);
+    calcForceMatrix(x, u, volFrac, e, stress_deviator_00, stress_deviator_01,
+                    stress_deviator_10, stress_deviator_11);
     if (dt >= tau) {
       dt = beta1 * tau;
     }
+    stress_deviator_00_05 = thermoMassMatrixInv * deviator_rate_00;
+    stress_deviator_00_05 *= 0.5 * dt;
+    stress_deviator_00_05 += stress_deviator_00;
+
+    stress_deviator_01_05 = thermoMassMatrixInv * deviator_rate_01;
+    stress_deviator_01_05 *= 0.5 * dt;
+    stress_deviator_01_05 += stress_deviator_01;
+
+    stress_deviator_10_05 = thermoMassMatrixInv * deviator_rate_10;
+    stress_deviator_10_05 *= 0.5 * dt;
+    stress_deviator_10_05 += stress_deviator_10;
+
+    stress_deviator_11_05 = thermoMassMatrixInv * deviator_rate_11;
+    stress_deviator_11_05 *= 0.5 * dt;
+    stress_deviator_11_05 += stress_deviator_11;
+
+    equivalent_plastic_strain_05 = equivalent_plastic_strain;
+    radialReturn(stress_deviator_00_05, stress_deviator_01_05,
+                 stress_deviator_10_05, stress_deviator_11_05,
+                 equivalent_plastic_strain_05);
 
     Fu = forceMatrix * Eigen::VectorXd::Ones(kNumberOfMaterials *
                                              kNumberOfThermodynamicPointsTotal);
@@ -2001,7 +2259,9 @@ void LagrangianFemMethod::RK2Step() {
 
     volFrac05 = volFrac + 0.5 * dt * volFracRate;
 
-    calcForceMatrix(x05, u05, volFrac05, e05);
+    calcForceMatrix(x05, u05, volFrac05, e05, stress_deviator_00_05,
+                    stress_deviator_01_05, stress_deviator_10_05,
+                    stress_deviator_11_05);
     if (dt >= tau) {
       dt = beta1 * tau;
       continue;
@@ -2009,6 +2269,29 @@ void LagrangianFemMethod::RK2Step() {
       break;
     }
   }
+  stress_deviator_00_05 = thermoMassMatrixInv * deviator_rate_00;
+  stress_deviator_00_05 *= dt;
+  stress_deviator_00_05 += stress_deviator_00;
+  stress_deviator_00.swap(stress_deviator_00_05);
+
+  stress_deviator_01_05 = thermoMassMatrixInv * deviator_rate_01;
+  stress_deviator_01_05 *= dt;
+  stress_deviator_01_05 += stress_deviator_01;
+  stress_deviator_01.swap(stress_deviator_01_05);
+
+  stress_deviator_10_05 = thermoMassMatrixInv * deviator_rate_10;
+  stress_deviator_10_05 *= dt;
+  stress_deviator_10_05 += stress_deviator_10;
+  stress_deviator_10.swap(stress_deviator_10_05);
+
+  stress_deviator_11_05 = thermoMassMatrixInv * deviator_rate_11;
+  stress_deviator_11_05 *= dt;
+  stress_deviator_11_05 += stress_deviator_11;
+  stress_deviator_11.swap(stress_deviator_11_05);
+
+  equivalent_plastic_strain.swap(equivalent_plastic_strain_05);
+  radialReturn(stress_deviator_00, stress_deviator_01, stress_deviator_10,
+               stress_deviator_11, equivalent_plastic_strain);
 
   Fu = forceMatrix * Eigen::VectorXd::Ones(kNumberOfMaterials *
                                            kNumberOfThermodynamicPointsTotal);
@@ -2044,7 +2327,137 @@ void LagrangianFemMethod::RK2Step() {
   }
 }
 
-Eigen::Matrix2d LagrangianFemMethod::calcJacobian(
+void PlasticElasticMethod::dumpPlasticityThreshold(
+    const std::filesystem::path &dataOutputDir) const {
+  for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
+    const std::string filenamePlasticityThreshold =
+        "plasticity_threshold" + std::to_string(material) + ".fem";
+
+    std::ofstream ofsPlasticityThreshold(
+        dataOutputDir / filenamePlasticityThreshold, std::ios::binary);
+
+    for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+      for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+        double s00_out = 0.0;
+        double s01_out = 0.0;
+        double s10_out = 0.0;
+        double s11_out = 0.0;
+        double s22_out = 0.0;
+
+        for (std::size_t node = 0; node < kNumberOfThermodynamicPointsPerCell;
+             node++) {
+          const std::size_t nodeIndex =
+              getThermodynamicIndexFromCell(cell, node, material);
+
+          const double s00_local = stress_deviator_00(nodeIndex);
+          const double s01_local = stress_deviator_01(nodeIndex);
+          const double s10_local = stress_deviator_10(nodeIndex);
+          const double s11_local = stress_deviator_11(nodeIndex);
+          const double s22_local = -s00_local - s11_local;
+
+          const double nodeBasis = thermodynamicBasisOutputValues(node, out);
+
+          s00_out += s00_local * nodeBasis;
+          s01_out += s01_local * nodeBasis;
+          s10_out += s10_local * nodeBasis;
+          s11_out += s11_local * nodeBasis;
+          s22_out += s22_local * nodeBasis;
+        }
+        const double stress_measure_out = std::sqrt(
+            1.5 * (s00_out * s00_out + s01_out * s01_out + s10_out * s10_out +
+                   s11_out * s11_out + s22_out * s22_out));
+
+        const double equivalent_stress =
+            problem.plastic_params->equivalent_stress;
+        const double plasticity_threshold =
+            stress_measure_out / equivalent_stress;
+
+        ofsPlasticityThreshold.write(
+            reinterpret_cast<const char *>(&plasticity_threshold),
+            sizeof(double));
+      }
+    }
+  }
+}
+
+void PlasticElasticMethod::dumpDeviatorStressTensor(
+    const std::filesystem::path &dataOutputDir) const {
+  for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
+    const std::string filenameS00 = "s00_" + std::to_string(material) + ".fem";
+    const std::string filenameS01 = "s01_" + std::to_string(material) + ".fem";
+    const std::string filenameS10 = "s10_" + std::to_string(material) + ".fem";
+    const std::string filenameS11 = "s11_" + std::to_string(material) + ".fem";
+
+    std::ofstream ofsS00(dataOutputDir / filenameS00, std::ios::binary);
+    std::ofstream ofsS01(dataOutputDir / filenameS01, std::ios::binary);
+    std::ofstream ofsS10(dataOutputDir / filenameS10, std::ios::binary);
+    std::ofstream ofsS11(dataOutputDir / filenameS11, std::ios::binary);
+
+    for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+      for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+        double s00_out = 0.0;
+        double s01_out = 0.0;
+        double s10_out = 0.0;
+        double s11_out = 0.0;
+
+        for (std::size_t node = 0; node < kNumberOfThermodynamicPointsPerCell;
+             node++) {
+          const std::size_t nodeIndex =
+              getThermodynamicIndexFromCell(cell, node, material);
+
+          const double s00_local = stress_deviator_00(nodeIndex);
+          const double s01_local = stress_deviator_01(nodeIndex);
+          const double s10_local = stress_deviator_10(nodeIndex);
+          const double s11_local = stress_deviator_11(nodeIndex);
+
+          const double nodeBasis = thermodynamicBasisOutputValues(node, out);
+
+          s00_out += s00_local * nodeBasis;
+          s01_out += s01_local * nodeBasis;
+          s10_out += s10_local * nodeBasis;
+          s11_out += s11_local * nodeBasis;
+        }
+
+        ofsS00.write(reinterpret_cast<const char *>(&s00_out), sizeof(double));
+        ofsS01.write(reinterpret_cast<const char *>(&s01_out), sizeof(double));
+        ofsS10.write(reinterpret_cast<const char *>(&s10_out), sizeof(double));
+        ofsS11.write(reinterpret_cast<const char *>(&s11_out), sizeof(double));
+      }
+    }
+  }
+}
+
+void PlasticElasticMethod::dumpEquivalentPlasticStrain(
+    const std::filesystem::path &dataOutputDir) const {
+  for (std::size_t material = 0; material < kNumberOfMaterials; material++) {
+    const std::string filenameEPS = "EPS" + std::to_string(material) + ".fem";
+
+    std::ofstream ofsEPS(dataOutputDir / filenameEPS, std::ios::binary);
+
+    for (std::size_t cell = 0; cell < kNumberOfCells; cell++) {
+      for (std::size_t out = 0; out < kNumberOfOutputPointsPerCell; out++) {
+        double EPS_out = 0.0;
+
+        for (std::size_t thermo_node = 0;
+             thermo_node < kNumberOfThermodynamicPointsPerCell; thermo_node++) {
+          const std::size_t thermo_index =
+              getThermodynamicIndexFromCell(cell, thermo_node, material);
+
+          const double EPS_local = equivalent_plastic_strain(thermo_index);
+
+          const double thermo_basis =
+              thermodynamicBasisOutputValues(thermo_node, out);
+
+          EPS_out += EPS_local * thermo_basis;
+        }
+
+        ofsEPS.write(reinterpret_cast<const char *>(&EPS_out), sizeof(double));
+      }
+    }
+  }
+}
+
+Eigen::Matrix2d PlasticElasticMethod::calcJacobian(
     const std::size_t cell, const std::size_t quad,
     const Eigen::VectorXd &xCalc) const {
   Eigen::Matrix2d output;

@@ -5,11 +5,15 @@ set(SOURCE_FILES main.cpp
   # EOSes
   eos.hpp
   eoses/eos_ideal_gas.hpp
+  eoses/eos_migruneisen_general.hpp
+  eoses/eos_simple_plastic.hpp
+  eoses/eos_stiffened_gas.hpp
   eoses/eos_mgal_precise6.hpp eoses/eos_mgal_precise6.cpp
 
   # MATERIAL CLOSURES
   material_closure.hpp
   material_closures/al_vac_closure.hpp
+  material_closures/pressure_relax_closure.hpp material_closures/pressure_relax_closure.cpp
 
   # PROBLEM
   problem.hpp problem.cpp
@@ -17,6 +21,7 @@ set(SOURCE_FILES main.cpp
   # METHODS
   method.hpp
   methods/lagrangian_fem_method.hpp methods/lagrangian_fem_method.cpp
+  methods/plastic_elastic_fem_method.hpp methods/plastic_elastic_fem_method.cpp
 
   # SIMULATION
   simulation.hpp simulation.cpp
@@ -44,4 +49,4 @@ if (OpenMP_CXX_FOUND)
   target_link_libraries(hydro-solver PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
-target_compile_options(hydro-solver PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
+target_compile_options(hydro-solver PRIVATE -march=native -Wall -Wextra -Wpedantic -Wshadow)
